@@ -43,7 +43,7 @@ async fn main() {
         env::set_var("STEAM_API_KEY", &creds.api_key);
     }
 
-    let cfg = config::load_config(&config_path);
+    let mut cfg = config::load_config(&config_path);
 
     println!("STEAM SCANNER: config loaded from {config_path}");
 
@@ -57,6 +57,11 @@ async fn main() {
     match steam::find_steam_dir(cfg.steam_dir.as_deref()) {
         Some(steam_dir) => {
             println!("STEAM: install dir: {steam_dir:?}");
+            for root in steam::steam_scan_roots(&steam_dir) {
+                if !cfg.scan_roots.contains(&root) {
+                    cfg.scan_roots.push(root);
+                }
+            }
             match steam::load_steam_libraries(&steam_dir) {
                 Ok(apps) => {
                     if let Err(e) = database::insert_steam_apps(&mut conn, &apps) {

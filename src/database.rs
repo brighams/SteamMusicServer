@@ -216,7 +216,8 @@ pub fn insert_steam_files(conn: &mut Connection, files: &[(PathBuf, String)]) ->
                 .or_else(|| apps_map.get(&title_lower))
                 .cloned();
 
-            let scan_type = if scan_root.trim_end_matches('/').ends_with("steamapps/music") {
+            let norm_root = scan_root.trim_end_matches(['/', '\\']).replace('\\', "/");
+            let scan_type = if norm_root.ends_with("steamapps/music") {
                 "music"
             } else {
                 "files"

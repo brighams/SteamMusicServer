@@ -47,6 +47,16 @@ fn vdf_obj<'a>(obj: &'a Obj<'a>, key: &str) -> Option<&'a Obj<'a>> {
         })
 }
 
+#[cfg(windows)]
+fn steam_dir_from_registry() -> Option<PathBuf> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let key = hkcu.open_subkey("Software\\Valve\\Steam").ok()?;
+    let path: String = key.get_value("SteamPath").ok()?;
+    Some(PathBuf::from(path))
+}
+
 pub fn find_steam_dir(config_override: Option<&str>) -> Option<PathBuf> {
     if let Some(dir) = config_override {
         let p = PathBuf::from(dir);
@@ -55,19 +65,67 @@ pub fn find_steam_dir(config_override: Option<&str>) -> Option<PathBuf> {
         }
     }
 
-    let home = std::env::var("HOME").ok()?;
-    let candidates = [
-        format!("{home}/.local/share/Steam"),
-        format!("{home}/.steam/steam"),
-        format!("{home}/.steam/Steam"),
-    ];
-    for candidate in &candidates {
-        let p = PathBuf::from(candidate);
+    #[cfg(windows)]
+    if let Some(p) = steam_dir_from_registry() {
         if p.join("steamapps").exists() {
             return Some(p);
         }
     }
+
+    if let Some(home) = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()) {
+        let candidates = [
+            format!("{home}/.local/share/Steam"),
+            format!("{home}/.steam/steam"),
+            format!("{home}/.steam/Steam"),
+            format!("{home}/Library/Application Support/Steam"),
+        ];
+        for candidate in &candidates {
+            let p = PathBuf::from(candidate);
+            if p.join("steamapps").exists() {
+                return Some(p);
+            }
+        }
+    }
     None
+}
+
+fn steam_library_paths(steam_dir: &Path) -> Vec<PathBuf> {
+    let vdf_path = steam_dir.join("steamapps").join("libraryfolders.vdf");
+    let content = match fs::read_to_string(&vdf_path) {
+        Ok(c) => c,
+        Err(_) => return vec![steam_dir.to_path_buf()],
+    };
+    let vdf = match Vdf::parse(&content) {
+        Ok(v) => v,
+        Err(_) => return vec![steam_dir.to_path_buf()],
+    };
+    let root_obj = match &vdf.value {
+        Value::Obj(o) => o,
+        _ => return vec![steam_dir.to_path_buf()],
+    };
+    let mut paths: Vec<PathBuf> = root_obj
+        .iter()
+        .flat_map(|(_k, vals)| vals)
+        .filter_map(|v| match v {
+            Value::Obj(o) => vdf_str(o, "path"),
+            _ => None,
+        })
+        .map(PathBuf::from)
+        .collect();
+    if paths.is_empty() {
+        paths.push(steam_dir.to_path_buf());
+    }
+    paths
+}
+
+pub fn steam_scan_roots(steam_dir: &Path) -> Vec<String> {
+    let mut roots = Vec::new();
+    for lib in steam_library_paths(steam_dir) {
+        let steamapps = lib.join("steamapps");
+        roots.push(steamapps.join("music").to_string_lossy().into_owned());
+        roots.push(steamapps.join("common").to_string_lossy().into_owned());
+    }
+    roots
 }
 
 pub fn load_steam_libraries(steam_dir: &Path) -> Result<Vec<SteamApp>, Box<dyn std::error::Error>> {
