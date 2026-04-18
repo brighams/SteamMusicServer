@@ -1,10 +1,10 @@
 [package]
-name = "steam_scanner"
+name = "music_server"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "steam_scanner"
+name = "music_server"
 path = "src/main.rs"
 
 [dependencies]

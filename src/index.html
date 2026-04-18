@@ -9,6 +9,15 @@ body { font: 14px/1.5 monospace; background: #111; color: #ccc; padding: 24px; }
 h1 { color: #e8c040; margin-bottom: 12px; font-size: 1.4em; letter-spacing: 1px; }
 #summary { margin-bottom: 20px; color: #7a9; border-left: 3px solid #2a5; padding-left: 12px; }
 #summary strong { color: #afa; }
+
+#now-playing {
+  display: none; margin-bottom: 20px;
+  background: #161622; border-left: 3px solid #e8c040; padding: 10px 14px;
+}
+#np-label { color: #e8c040; font-size: 0.8em; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+#np-filename { color: #fff; margin-bottom: 8px; }
+#np-tracks { max-height: 220px; overflow-y: auto; }
+
 .filter-row { margin-bottom: 20px; }
 .filter-row input {
   background: #1e1e1e; border: 1px solid #444; color: #ccc;
@@ -39,6 +48,14 @@ h2 small { color: #555; text-transform: none; letter-spacing: 0; margin-left: 8p
   font-size: 0.72em; padding: 1px 5px; border-radius: 2px;
   background: #202020; color: #777; letter-spacing: 0.5px;
 }
+.type-toggle {
+  font-size: 0.72em; padding: 1px 5px; border-radius: 2px; letter-spacing: 0.5px;
+  cursor: pointer; border: 1px solid #3a5a3a; background: #1e2e1e; color: #afa;
+  user-select: none; font-family: inherit;
+}
+.type-toggle.off {
+  background: #1a1a1a; color: #444; border-color: #222; text-decoration: line-through;
+}
 
 .tracks-panel { display: none; padding: 4px 8px 12px 20px; }
 .tracks-panel.open { display: block; }
@@ -50,160 +67,255 @@ td a { color: #7ab4e8; text-decoration: none; }
 td a:hover { color: #e8c040; }
 .dim { color: #555; }
 .msg { color: #555; font-style: italic; padding: 6px 0; display: block; }
+
+.play-col { width: 20px; padding: 2px 2px 2px 4px !important; }
+.play-btn {
+  visibility: hidden; background: none; border: none;
+  color: #7ab4e8; cursor: pointer; font-size: 0.85em; padding: 0; line-height: 1;
+}
+tr:hover .play-btn { visibility: visible; }
+tr.playing .play-btn { visibility: visible; color: #e8c040; }
+tr.playing td { background: #1a1a22; }
 </style>
 </head>
 <body>
 <h1>⭐ STARKEEPER MEDIA</h1>
 <div id="summary" class="msg">loading…</div>
+
+<audio id="audio-player"></audio>
+
+<div id="now-playing">
+  <div id="np-label">Now Playing</div>
+  <div id="np-filename">—</div>
+  <div id="np-tracks"></div>
+</div>
+
 <div class="filter-row">
   <input id="search" type="text" placeholder="filter by name…" oninput="filterAll(this.value)">
 </div>
 
 <div class="section">
-  <h2>Scanned Albums <small>all titles found in scan roots</small></h2>
-  <div id="albums"><span class="msg">loading…</span></div>
+  <h2>Sound Tracks <small id="st-count"></small></h2>
+  <div id="soundtracks"><span class="msg">loading…</span></div>
 </div>
 
 <div class="section">
-  <h2>Linked Games <small>matched to Steam library — may overlap with albums above</small></h2>
-  <div id="games"><span class="msg">loading…</span></div>
+  <h2>Discovered Media <small id="dm-count"></small></h2>
+  <div id="media"><span class="msg">loading…</span></div>
 </div>
 
 <script>
 function esc(s) {
-  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
 }
 
-async function load() {
-  const [sumRes, albumsRes, gamesRes] = await Promise.all([
-    fetch('/api/summary'),
-    fetch('/api/albums'),
-    fetch('/api/games'),
-  ]);
-  const sum    = await sumRes.json();
-  const albums = await albumsRes.json();
-  const games  = await gamesRes.json();
+// ── player ────────────────────────────────────────────────────────────────────
 
-  // summary bar
-  const parts = sum.by_type.map(r => `<strong>${r.count.toLocaleString()}</strong>&thinsp;${r.media_type}`);
-  document.getElementById('summary').innerHTML =
-    `<strong>${sum.total.toLocaleString()}</strong> files &nbsp;·&nbsp; ` + parts.join(' &nbsp;·&nbsp; ');
+const AUDIO = document.getElementById('audio-player')
+const player = { albumId: null, tracks: [], urlFn: null, idx: -1 }
 
-  buildAlbums(albums);
-  buildGames(games);
+AUDIO.onended = () => {
+  if (player.idx + 1 < player.tracks.length) playIdx(player.idx + 1)
 }
 
-function buildAlbums(albums) {
-  const el = document.getElementById('albums');
-  if (!albums.length) { el.innerHTML = '<span class="msg">no albums found</span>'; return; }
-  el.innerHTML = '';
-  for (const a of albums) {
-    const types = (a.types || '').split(',').filter(Boolean).sort();
-    const div = document.createElement('div');
-    div.className = 'album-entry';
-    div.dataset.name = (a.title || '').toLowerCase();
-    const typeBadges = types.map(t => `<span class="badge">${esc(t)}</span>`).join('');
-    div.innerHTML = `
-      <div class="row" onclick="toggleAlbum(this,'${esc(a.title)}')">
-        <span class="row-name">${esc(a.title)}</span>
-        <span class="badges">${typeBadges}</span>
-        <span class="row-meta">${(a.track_count||0).toLocaleString()} files</span>
-        <div class="playlists" id="apl-${esc(a.title)}"></div>
-      </div>
-      <div class="tracks-panel" id="atp-${esc(a.title)}"><span class="msg">loading…</span></div>`;
-    el.appendChild(div);
+const playIdx = (idx) => {
+  player.idx = idx
+  AUDIO.src = player.urlFn(player.tracks[idx])
+  AUDIO.play()
+  refreshNowPlaying()
+  refreshHighlight()
+}
+
+const playFrom = (albumId, fileId) => {
+  const reg = TRACK_REG[albumId]
+  if (!reg) return
+  const filtered = reg.tracks.filter(t => !isTypeOff(albumId, t.media_type))
+  const idx = filtered.findIndex(t => t.file_id === fileId)
+  if (idx < 0) return
+  player.albumId = albumId
+  player.tracks  = filtered
+  player.urlFn   = reg.urlFn
+  playIdx(idx)
+}
+
+const playBtnClick = (btn) => {
+  if (btn.dataset.queueIdx !== undefined) {
+    playIdx(parseInt(btn.dataset.queueIdx))
+  } else {
+    playFrom(btn.dataset.albumId, parseInt(btn.dataset.fileId))
   }
 }
 
-function buildGames(games) {
-  const el = document.getElementById('games');
-  const valid = games.filter(g => g.appid);
-  if (!valid.length) { el.innerHTML = '<span class="msg">no linked games found</span>'; return; }
-  el.innerHTML = '';
-  for (const g of valid) {
-    const div = document.createElement('div');
-    div.className = 'game-entry';
-    div.dataset.name = (g.name || '').toLowerCase();
-    div.innerHTML = `
-      <div class="row" onclick="toggleGame(this,'${esc(g.appid)}')">
-        <span class="row-name">${esc(g.name)}</span>
-        <div class="playlists" id="gpl-${esc(g.appid)}"></div>
-      </div>
-      <div class="tracks-panel" id="gtp-${esc(g.appid)}"><span class="msg">loading…</span></div>`;
-    el.appendChild(div);
+// ── track registry & type filters ────────────────────────────────────────────
+
+const TRACK_REG = {}  // albumId -> { tracks, urlFn, allTypes, title, scanType }
+const TYPE_OFF  = {}  // albumId -> Set<type>
+
+const isTypeOff = (albumId, type) => !!(TYPE_OFF[albumId] && TYPE_OFF[albumId].has(type))
+
+const toggleType = (albumId, type, btn) => {
+  if (!TYPE_OFF[albumId]) TYPE_OFF[albumId] = new Set()
+  if (TYPE_OFF[albumId].has(type)) {
+    TYPE_OFF[albumId].delete(type)
+    btn.className = 'type-toggle'
+  } else {
+    TYPE_OFF[albumId].add(type)
+    btn.className = 'type-toggle off'
+  }
+  filterTypeRows(albumId)
+  rebuildPlaylistBtns(albumId)
+  if (player.albumId === albumId && TRACK_REG[albumId]) {
+    const cur = player.tracks[player.idx]
+    player.tracks = TRACK_REG[albumId].tracks.filter(t => !isTypeOff(albumId, t.media_type))
+    player.idx = cur ? player.tracks.findIndex(t => t.file_id === cur.file_id) : -1
+    refreshNowPlaying()
   }
 }
 
-async function toggleAlbum(row, title) {
-  const key   = title;
-  const panel = document.getElementById('atp-' + key);
-  const open  = panel.classList.toggle('open');
-  if (!open || panel.dataset.loaded) return;
-  panel.dataset.loaded = '1';
-
-  const res    = await fetch('/api/album/tracks?title=' + encodeURIComponent(title));
-  const tracks = await res.json();
-
-  const types = [...new Set(tracks.map(t => t.media_type).filter(Boolean))].sort();
-  const plEl  = document.getElementById('apl-' + key);
-  const plUrl = t => `/api/album/tracks?title=${encodeURIComponent(title)}&vlc=1&type=${t}`;
-  plEl.innerHTML = types.map(t =>
-    `<a class="pl-btn" href="${plUrl(t)}" download="${esc(title)}_${t}.xspf">${t}</a>`
-  ).join('') + (types.length > 1
-    ? `<a class="pl-btn" href="/api/album/tracks?title=${encodeURIComponent(title)}&vlc=1" download="${esc(title)}_all.xspf">ALL</a>`
-    : '');
-
-  renderTracks(panel, tracks, t => `/media/${t.file_id}`);
-}
-
-async function toggleGame(row, appid) {
-  const panel = document.getElementById('gtp-' + appid);
-  const open  = panel.classList.toggle('open');
-  if (!open || panel.dataset.loaded) return;
-  panel.dataset.loaded = '1';
-
-  const res    = await fetch('/api/game/tracks?appid=' + appid);
-  const tracks = await res.json();
-
-  const types = [...new Set(tracks.map(t => t.media_type).filter(Boolean))].sort();
-  const plEl  = document.getElementById('gpl-' + appid);
-  plEl.innerHTML = types.map(t =>
-    `<a class="pl-btn" href="/api/game/tracks?appid=${appid}&vlc=1&type=${t}" download="${appid}_${t}.xspf">${t}</a>`
-  ).join('') + (types.length > 1
-    ? `<a class="pl-btn" href="/api/game/tracks?appid=${appid}&vlc=1" download="${appid}_all.xspf">ALL</a>`
-    : '');
-
-  renderTracks(panel, tracks, t => `/cdn.media/id/${t.file_id}/appid/${t.app_id}/${encodeURIComponent(t.file_name)}`);
-}
-
-function renderTracks(panel, tracks, urlFn) {
-  if (!tracks.length) {
-    panel.innerHTML = '<span class="msg">no tracks found</span>';
-    return;
+const filterTypeRows = (albumId) => {
+  const panel = document.getElementById('tp-' + albumId)
+  if (!panel) return
+  for (const tr of panel.querySelectorAll('tr[data-type]')) {
+    tr.style.display = isTypeOff(albumId, tr.dataset.type) ? 'none' : ''
   }
-  const rows = tracks.map(t => {
-    const kb  = t.size ? (t.size / 1024).toFixed(0) + ' KB' : '';
-    return `<tr>
-      <td><a href="${urlFn(t)}" target="_blank">${esc(t.file_name)}</a></td>
+}
+
+const rebuildPlaylistBtns = (albumId) => {
+  const reg  = TRACK_REG[albumId]
+  const plEl = document.getElementById('pl-' + albumId)
+  if (!reg || !plEl) return
+  const base   = `/api/album/tracks?title=${encodeURIComponent(reg.title)}&scan_type=${reg.scanType}`
+  const active = reg.allTypes.filter(t => !isTypeOff(albumId, t))
+  plEl.innerHTML = active.map(t =>
+    `<a class="pl-btn" href="${base}&vlc=1&type=${t}" download="${esc(reg.title)}_${t}.xspf">${t}</a>`
+  ).join('') + (active.length > 1
+    ? `<a class="pl-btn" href="${base}&vlc=1" download="${esc(reg.title)}_all.xspf">ALL</a>`
+    : '')
+}
+
+// ── now playing bar ───────────────────────────────────────────────────────────
+
+const refreshNowPlaying = () => {
+  const bar = document.getElementById('now-playing')
+  if (player.idx < 0 || !player.tracks.length) { bar.style.display = 'none'; return }
+  bar.style.display = 'block'
+  document.getElementById('np-filename').textContent = player.tracks[player.idx].file_name
+  document.getElementById('np-tracks').innerHTML = tracksTable(player.tracks, player.urlFn, null, true)
+  refreshHighlight()
+}
+
+const refreshHighlight = () => {
+  const curUrl = player.idx >= 0 && player.urlFn ? player.urlFn(player.tracks[player.idx]) : null
+  for (const tr of document.querySelectorAll('tr[data-url]')) {
+    tr.classList.toggle('playing', tr.dataset.url === curUrl)
+  }
+}
+
+// ── track table ───────────────────────────────────────────────────────────────
+
+const tracksTable = (tracks, urlFn, albumId, fromQueue) => {
+  if (!tracks.length) return '<span class="msg">no tracks found</span>'
+  const rows = tracks.map((t, i) => {
+    const url    = urlFn(t)
+    const kb     = t.size ? (t.size / 1024).toFixed(0) + ' KB' : ''
+    const hidden = !fromQueue && albumId && isTypeOff(albumId, t.media_type) ? ' style="display:none"' : ''
+    const btnData = fromQueue
+      ? `data-queue-idx="${i}"`
+      : `data-album-id="${esc(albumId)}" data-file-id="${t.file_id}"`
+    return `<tr data-type="${esc(t.media_type)}" data-url="${esc(url)}"${hidden}>
+      <td class="play-col"><button class="play-btn" ${btnData} onclick="playBtnClick(this)">▶</button></td>
+      <td>${esc(t.file_name)}</td>
       <td><span class="badge">${esc(t.media_type)}</span></td>
       <td class="dim">${esc(kb)}</td>
-    </tr>`;
-  }).join('');
-  panel.innerHTML = `<table><tr><th>file</th><th>type</th><th>size</th></tr>${rows}</table>`;
+      <td class="dim">${esc(t.full_path)}</td>
+    </tr>`
+  }).join('')
+  return `<table><tr><th></th><th>file</th><th>type</th><th>size</th></tr>${rows}</table>`
+}
+
+// ── page build ────────────────────────────────────────────────────────────────
+
+async function load() {
+  const [sumRes, stRes, dmRes] = await Promise.all([
+    fetch('/api/summary'),
+    fetch('/api/albums?scan_type=music'),
+    fetch('/api/albums?scan_type=files'),
+  ])
+  const sum    = await sumRes.json()
+  const stList = await stRes.json()
+  const dmList = await dmRes.json()
+
+  const parts = sum.by_type.map(r => `<strong>${r.count.toLocaleString()}</strong>&thinsp;${r.media_type}`)
+  document.getElementById('summary').innerHTML =
+    `<strong>${sum.total.toLocaleString()}</strong> files &nbsp;·&nbsp; ` + parts.join(' &nbsp;·&nbsp; ')
+    + ` &nbsp;|&nbsp; <strong>${(sum.soundtracks||0).toLocaleString()}</strong> sound tracks`
+    + ` &nbsp;·&nbsp; <strong>${(sum.discovered||0).toLocaleString()}</strong> media collections`
+
+  document.getElementById('st-count').textContent = `${stList.length.toLocaleString()} titles`
+  document.getElementById('dm-count').textContent = `${dmList.length.toLocaleString()} collections`
+
+  buildAlbums(stList, 'soundtracks', 'music', 'st')
+  buildAlbums(dmList, 'media', 'files', 'dm')
+}
+
+function buildAlbums(albums, containerId, scanType, prefix) {
+  const el = document.getElementById(containerId)
+  if (!albums.length) { el.innerHTML = '<span class="msg">none found</span>'; return }
+  el.innerHTML = ''
+  for (const a of albums) {
+    const types = (a.types || '').split(',').filter(Boolean).sort()
+    const id    = prefix + '_' + encodeURIComponent(a.title).replace(/'/g, '%27')
+    const div   = document.createElement('div')
+    div.className    = 'album-entry'
+    div.dataset.name = (a.title || '').toLowerCase()
+
+    const badgesHtml = scanType === 'music'
+      ? types.map(t => `<button class="type-toggle" onclick="event.stopPropagation();toggleType('${id}','${esc(t)}',this)">${esc(t)}</button>`).join('')
+      : types.map(t => `<span class="badge">${esc(t)}</span>`).join('')
+
+    div.innerHTML = `
+      <div class="row" data-title="${esc(a.title)}" data-scan-type="${esc(scanType)}" data-id="${esc(id)}" onclick="toggleAlbum(this)">
+        <span class="row-name">${esc(a.title)}</span>
+        <div class="badges">${badgesHtml}</div>
+        <span class="row-meta">${(a.track_count||0).toLocaleString()} files</span>
+        <div class="playlists" id="pl-${esc(id)}"></div>
+      </div>
+      <div class="tracks-panel" id="tp-${esc(id)}"><span class="msg">loading…</span></div>`
+    el.appendChild(div)
+  }
+}
+
+async function toggleAlbum(row) {
+  const title    = row.dataset.title
+  const scanType = row.dataset.scanType
+  const id       = row.dataset.id
+  const panel    = document.getElementById('tp-' + id)
+  const open     = panel.classList.toggle('open')
+  if (!open || panel.dataset.loaded) return
+  panel.dataset.loaded = '1'
+
+  const urlFn  = t => `/media/${t.file_id}`
+  const base   = `/api/album/tracks?title=${encodeURIComponent(title)}&scan_type=${scanType}`
+  const tracks = await fetch(base).then(r => r.json())
+  const types  = [...new Set(tracks.map(t => t.media_type).filter(Boolean))].sort()
+
+  TRACK_REG[id] = { tracks, urlFn, allTypes: types, title, scanType }
+
+  rebuildPlaylistBtns(id)
+  panel.innerHTML = tracksTable(tracks, urlFn, id, false)
+  refreshHighlight()
 }
 
 function filterAll(q) {
-  const term = q.toLowerCase();
-  for (const sel of ['.album-entry', '.game-entry']) {
-    for (const div of document.querySelectorAll(sel)) {
-      div.style.display = !term || div.dataset.name.includes(term) ? '' : 'none';
-    }
+  const term = q.toLowerCase()
+  for (const div of document.querySelectorAll('.album-entry')) {
+    div.style.display = !term || div.dataset.name.includes(term) ? '' : 'none'
   }
 }
 
 load().catch(e => {
-  document.getElementById('summary').textContent = 'Error: ' + e;
-});
+  document.getElementById('summary').textContent = 'Error: ' + e
+})
 </script>
 </body>
 </html>

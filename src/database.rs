@@ -71,6 +71,8 @@ fn create_schema(conn: &Connection) -> Result<()> {
         CREATE TABLE steam_files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             media_type TEXT NOT NULL,
+            appid TEXT,
+            scan_type TEXT NOT NULL,
             title TEXT NOT NULL,
             dir_path TEXT NOT NULL,
             full_path TEXT NOT NULL,
@@ -85,7 +87,8 @@ fn create_schema(conn: &Connection) -> Result<()> {
         CREATE INDEX idx_steam_owned_apps_name ON steam_owned_apps (name);
         CREATE INDEX idx_steam_files_media_type ON steam_files (media_type);
         CREATE INDEX idx_steam_files_title ON steam_files (title);
-        CREATE INDEX idx_steam_files_file_name ON steam_files (file_name);",
+        CREATE INDEX idx_steam_files_file_name ON steam_files (file_name);
+        CREATE INDEX idx_steam_files_appid ON steam_files (appid);",
     )
 }
 
@@ -143,17 +146,48 @@ pub fn insert_owned_apps(conn: &mut Connection, apps: &[OwnedApp]) -> Result<()>
     Ok(())
 }
 
-pub fn insert_steam_files(conn: &mut Connection, files: &[PathBuf]) -> Result<()> {
+pub fn insert_steam_files(conn: &mut Connection, files: &[(PathBuf, String)]) -> Result<()> {
     let title_re =
         Regex::new(r"(?i)(?:common|music)/([^/\\]+)|workshop/content/\d+/([^/\\]+)").unwrap();
+
+    let mut owned_map: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    {
+        let mut stmt = conn.prepare("SELECT name, appid FROM steam_owned_apps")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (name, appid) = row?;
+            owned_map.insert(name.to_lowercase(), appid);
+        }
+    }
+
+    let mut apps_map: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    {
+        let mut stmt = conn.prepare("SELECT installdir, name, appid FROM steam_apps")?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (installdir, name, appid) = row?;
+            apps_map.entry(installdir.to_lowercase()).or_insert(appid.clone());
+            apps_map.entry(name.to_lowercase()).or_insert(appid);
+        }
+    }
 
     let tx = conn.transaction()?;
     {
         let mut stmt = tx.prepare(
-            "INSERT INTO steam_files VALUES (NULL,?,?,?,?,?,?,?,?)",
+            "INSERT INTO steam_files VALUES (NULL,?,?,?,?,?,?,?,?,?,?)",
         )?;
 
-        for (i, path) in files.iter().enumerate() {
+        for (i, (path, scan_root)) in files.iter().enumerate() {
             let path_str = path.to_string_lossy();
 
             let title = title_re
@@ -177,6 +211,17 @@ pub fn insert_steam_files(conn: &mut Connection, files: &[PathBuf]) -> Result<()
                 .map(|f| f.to_string_lossy().into_owned())
                 .unwrap_or_default();
 
+            let title_lower = title.to_lowercase();
+            let appid = owned_map.get(&title_lower)
+                .or_else(|| apps_map.get(&title_lower))
+                .cloned();
+
+            let scan_type = if scan_root.trim_end_matches('/').ends_with("steamapps/music") {
+                "music"
+            } else {
+                "files"
+            };
+
             let meta = fs::metadata(path).ok();
             let size = meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
             let modified = meta
@@ -192,6 +237,8 @@ pub fn insert_steam_files(conn: &mut Connection, files: &[PathBuf]) -> Result<()
 
             stmt.execute(params![
                 media_type.as_str(),
+                appid,
+                scan_type,
                 title,
                 dir_path,
                 path_str.as_ref(),

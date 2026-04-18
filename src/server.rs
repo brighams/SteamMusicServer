@@ -88,6 +88,7 @@ const ALBUMS_LIST: &str = "
            COUNT(*)                          AS track_count,
            GROUP_CONCAT(DISTINCT media_type) AS types
     FROM steam_files
+    WHERE (:scan_type IS NULL OR scan_type = :scan_type)
     GROUP BY title
     ORDER BY title";
 
@@ -96,10 +97,11 @@ const ALBUM_FILE_TRACKS: &str = "
     FROM steam_files
     WHERE title = :title
       AND (:type IS NULL OR UPPER(media_type) = UPPER(:type))
+      AND (:scan_type IS NULL OR scan_type = :scan_type)
     ORDER BY file_name";
 
 const RANDOM_ALBUMS: &str =
-    "SELECT DISTINCT title FROM steam_files WHERE media_type = 'MP3'";
+    "SELECT DISTINCT title FROM steam_files WHERE (:type IS NULL OR UPPER(media_type) = UPPER(:type))";
 
 const ALBUM_TRACKS: &str = "
     SELECT steam_apps.*, steam_files.*,
@@ -163,8 +165,8 @@ fn run_query_one(conn: &Connection, sql: &str, params: impl rusqlite::Params) ->
 
 // ── random track helpers ──────────────────────────────────────────────────────
 
-fn pick_random_track(conn: &Connection) -> Option<Value> {
-    let albums = run_query(conn, RANDOM_ALBUMS, ());
+fn pick_random_track(conn: &Connection, media_type: Option<&str>) -> Option<Value> {
+    let albums = run_query(conn, RANDOM_ALBUMS, rusqlite::named_params! { ":type": media_type });
     if albums.is_empty() {
         return None;
     }
@@ -226,20 +228,34 @@ fn to_vlc_playlist(tracks: &[Value]) -> String {
 
 // ── API handlers ──────────────────────────────────────────────────────────────
 
-async fn api_tracks(State(s): State<AppState>) -> Json<Value> {
-    let sql = format!("{TRACK_SELECT} ORDER BY steam_files.title, steam_files.file_name");
+#[derive(Deserialize)]
+struct TracksQuery {
+    #[serde(rename = "type")]
+    media_type: Option<String>,
+    appname: Option<String>,
+}
+
+async fn api_tracks(State(s): State<AppState>, Query(q): Query<TracksQuery>) -> Json<Value> {
+    let sql = format!(
+        "{TRACK_SELECT}
+         WHERE (:type IS NULL OR UPPER(steam_files.media_type) = UPPER(:type))
+           AND (:appname IS NULL
+                OR steam_files.title LIKE '%' || :appname || '%'
+                OR steam_apps.installdir LIKE '%' || :appname || '%'
+                OR steam_apps.name LIKE '%' || :appname || '%')
+         ORDER BY steam_files.title, steam_files.file_name"
+    );
     let db = s.db.lock().unwrap();
-    Json(Value::Array(run_query(&db, &sql, ())))
+    Json(Value::Array(run_query(
+        &db,
+        &sql,
+        rusqlite::named_params! { ":type": q.media_type, ":appname": q.appname },
+    )))
 }
 
 async fn api_games(State(s): State<AppState>) -> Json<Value> {
     let db = s.db.lock().unwrap();
     Json(Value::Array(run_query(&db, GAMES_WITH_MUSIC, ())))
-}
-
-#[derive(Deserialize)]
-struct AppidQuery {
-    appid: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -290,16 +306,31 @@ async fn api_summary(State(s): State<AppState>) -> Json<Value> {
     let total: i64 = db
         .query_row("SELECT COUNT(*) FROM steam_files", (), |r| r.get(0))
         .unwrap_or(0);
-    Json(json!({ "total": total, "by_type": by_type }))
+    let soundtracks: i64 = db
+        .query_row("SELECT COUNT(DISTINCT title) FROM steam_files WHERE scan_type = 'music'", (), |r| r.get(0))
+        .unwrap_or(0);
+    let discovered: i64 = db
+        .query_row("SELECT COUNT(DISTINCT title) FROM steam_files WHERE scan_type = 'files'", (), |r| r.get(0))
+        .unwrap_or(0);
+    Json(json!({ "total": total, "by_type": by_type, "soundtracks": soundtracks, "discovered": discovered }))
 }
 
 async fn serve_index() -> impl IntoResponse {
     ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], INDEX_HTML)
 }
 
-async fn api_albums(State(s): State<AppState>) -> Json<Value> {
+#[derive(Deserialize)]
+struct AlbumsQuery {
+    scan_type: Option<String>,
+}
+
+async fn api_albums(State(s): State<AppState>, Query(q): Query<AlbumsQuery>) -> Json<Value> {
     let db = s.db.lock().unwrap();
-    Json(Value::Array(run_query(&db, ALBUMS_LIST, ())))
+    Json(Value::Array(run_query(
+        &db,
+        ALBUMS_LIST,
+        rusqlite::named_params! { ":scan_type": q.scan_type },
+    )))
 }
 
 #[derive(Deserialize)]
@@ -308,6 +339,7 @@ struct AlbumTracksQuery {
     vlc: Option<String>,
     #[serde(rename = "type")]
     media_type: Option<String>,
+    scan_type: Option<String>,
 }
 
 async fn api_album_tracks(State(s): State<AppState>, Query(q): Query<AlbumTracksQuery>) -> Response {
@@ -319,7 +351,7 @@ async fn api_album_tracks(State(s): State<AppState>, Query(q): Query<AlbumTracks
     let rows = run_query(
         &db,
         ALBUM_FILE_TRACKS,
-        rusqlite::named_params! { ":title": title, ":type": q.media_type },
+        rusqlite::named_params! { ":title": title, ":type": q.media_type, ":scan_type": q.scan_type },
     );
     if q.vlc.is_some() {
         return (
@@ -367,11 +399,11 @@ async fn serve_media(State(s): State<AppState>, Path(file_id): Path<i64>) -> Res
 }
 
 #[derive(Deserialize)]
-struct NameQuery {
+struct SearchGamesQuery {
     name: Option<String>,
 }
 
-async fn api_search_games(State(s): State<AppState>, Query(q): Query<NameQuery>) -> Json<Value> {
+async fn api_search_games(State(s): State<AppState>, Query(q): Query<SearchGamesQuery>) -> Json<Value> {
     let db = s.db.lock().unwrap();
     let rows = match q.name {
         Some(name) => run_query(
@@ -388,23 +420,32 @@ async fn api_search_games(State(s): State<AppState>, Query(q): Query<NameQuery>)
     Json(Value::Array(rows))
 }
 
-async fn api_search_tracks(State(s): State<AppState>, Query(q): Query<AppidQuery>) -> Response {
-    match q.appid {
-        None => (StatusCode::BAD_REQUEST, Json(json!({"error":"missing appid"}))).into_response(),
-        Some(appid) => {
-            let sql = format!(
-                "{TRACK_SELECT} WHERE steam_apps.appid = :appid \
-                 ORDER BY steam_files.title, steam_files.file_name"
-            );
-            let db = s.db.lock().unwrap();
-            let rows = run_query(
-                &db,
-                &sql,
-                rusqlite::named_params! { ":appid": appid },
-            );
-            Json(Value::Array(rows)).into_response()
-        }
-    }
+#[derive(Deserialize)]
+struct SearchTracksQuery {
+    appid: Option<String>,
+    appname: Option<String>,
+    #[serde(rename = "type")]
+    media_type: Option<String>,
+}
+
+async fn api_search_tracks(State(s): State<AppState>, Query(q): Query<SearchTracksQuery>) -> Response {
+    let sql = format!(
+        "{TRACK_SELECT}
+         WHERE (:appid IS NULL OR steam_apps.appid = :appid)
+           AND (:appname IS NULL
+                OR steam_files.title LIKE '%' || :appname || '%'
+                OR steam_apps.installdir LIKE '%' || :appname || '%'
+                OR steam_apps.name LIKE '%' || :appname || '%')
+           AND (:type IS NULL OR UPPER(steam_files.media_type) = UPPER(:type))
+         ORDER BY steam_files.title, steam_files.file_name"
+    );
+    let db = s.db.lock().unwrap();
+    let rows = run_query(
+        &db,
+        &sql,
+        rusqlite::named_params! { ":appid": q.appid, ":appname": q.appname, ":type": q.media_type },
+    );
+    Json(Value::Array(rows)).into_response()
 }
 
 async fn api_now_playing(State(s): State<AppState>) -> Response {
@@ -422,12 +463,14 @@ async fn api_now_playing(State(s): State<AppState>) -> Response {
 struct RandomQuery {
     count: Option<u32>,
     vlc: Option<String>,
+    #[serde(rename = "type")]
+    media_type: Option<String>,
 }
 
 async fn api_random_track(State(s): State<AppState>, Query(q): Query<RandomQuery>) -> Response {
     let n = q.count.unwrap_or(1).max(1).min(100) as usize;
     let db = s.db.lock().unwrap();
-    let tracks: Vec<Value> = (0..n).filter_map(|_| pick_random_track(&db)).collect();
+    let tracks: Vec<Value> = (0..n).filter_map(|_| pick_random_track(&db, q.media_type.as_deref())).collect();
     if q.vlc.is_some() {
         return (
             [(header::CONTENT_TYPE, "application/xspf+xml")],
@@ -540,11 +583,10 @@ fn spawn_details_updater(player_db_path: String) {
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;").ok();
 
         loop {
-            std::thread::sleep(std::time::Duration::from_secs(3));
 
             let row: Option<(String, String)> = conn
                 .query_row(
-                    "SELECT appid, title FROM steam_app_details WHERE date_updated IS NULL LIMIT 1",
+                    "SELECT appid, title FROM steam_app_details WHERE date_updated IS NULL order by title LIMIT 1",
                     [],
                     |r| Ok((r.get(0)?, r.get(1)?)),
                 )
@@ -558,9 +600,10 @@ fn spawn_details_updater(player_db_path: String) {
                 Some(r) => r,
             };
 
+            std::thread::sleep(std::time::Duration::from_millis(1500));
             println!("DETAILS: fetching {title} ({appid})");
-
             let url = format!("http://store.steampowered.com/api/appdetails?appids={appid}");
+            
             let response: serde_json::Value = match ureq::get(&url).call() {
                 Err(ureq::Error::Status(code, resp)) => {
                     let body = resp.into_string().unwrap_or_default();
@@ -575,6 +618,10 @@ fn spawn_details_updater(player_db_path: String) {
                     Ok(v) => v,
                     Err(e) => {
                         eprintln!("ERROR DETAILS: failed to parse response for {appid}: {e}");
+                        if let Err(e) = mark_app_detail_error(&conn, &appid) {
+                            eprintln!("ERROR DATABASE FAILED TO MARK ERROR DETAILS: db update error for {appid}: {e}");
+                            break;
+                        }
                         continue;
                     }
                 },
@@ -592,6 +639,12 @@ fn spawn_details_updater(player_db_path: String) {
             let data = &response[&appid]["data"];
 
             let app_type = data["type"].as_str().map(str::to_owned);
+
+            if !matches!(app_type.as_deref(), Some("game") | Some("music")) {
+                conn.execute("DELETE FROM steam_app_details WHERE appid = ?", params![appid]).ok();
+                continue;
+            }
+
             let actual_title = data["name"].as_str().unwrap_or(&title).to_owned();
             let is_free = data["is_free"].as_bool().map(|b| b as i64);
             let short_desc = data["short_description"].as_str().map(str::to_owned);
@@ -636,8 +689,8 @@ fn spawn_details_updater(player_db_path: String) {
                     if let Some(id) = dlc_id.as_u64() {
                         let placeholder = format!("{actual_title} DLC #{id}");
                         conn.execute(
-                            "INSERT OR IGNORE INTO steam_app_details (appid, title) VALUES (?,?)",
-                            params![id.to_string(), placeholder],
+                            "INSERT OR IGNORE INTO steam_app_details (appid, title, parent_id) VALUES (?,?,?)",
+                            params![id.to_string(), placeholder, appid.to_string()],
                         )
                         .ok();
                     }

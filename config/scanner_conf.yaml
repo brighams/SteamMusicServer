@@ -1,4 +1,4 @@
-db_file:     media/starkeeper.db
+db_file: media/starkeeper.db
 media_type:
   - mp3
   - ogg
@@ -10,8 +10,7 @@ media_type:
   - midi
   - mid
 scan_roots:
-  - $HOME/starkeeper/.steam/steam/steamapps/music/
-  - $HOME/starkeeper/.steam/steam/steamapps/
+  - $HOME/.steam/steam/steamapps/music/
+  - $HOME/.steam/steam/steamapps/common/
   - /var/mnt/SteamExt4/SteamLibrary/steamapps/music/
-  - /var/mnt/SteamExt4/SteamLibrary/
-
+  - /var/mnt/SteamExt4/SteamLibrary/steamapps/common/

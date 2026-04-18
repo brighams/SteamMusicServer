@@ -2,12 +2,15 @@ use rayon::prelude::*;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
-pub fn scan_all(roots: &[String], extensions: &[String]) -> Vec<PathBuf> {
+pub fn scan_all(roots: &[String], extensions: &[String]) -> Vec<(PathBuf, String)> {
     roots
         .par_iter()
         .flat_map(|root| {
             println!("SCANNER: Scanning {root}");
             scan_directory(root, extensions)
+                .into_iter()
+                .map(|p| (p, root.clone()))
+                .collect::<Vec<_>>()
         })
         .collect()
 }

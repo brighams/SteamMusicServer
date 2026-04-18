@@ -20,11 +20,11 @@ Needs an API key because this will download the list of all games you own to hel
 https://steamcommunity.com/dev/apikeyexport 
 
 ### Environment Variables
-// put these in your .bashrc
-// on windows you know where they go
-export STEAM_API_KEY="XXXXXXXXXXXXXXXX"
-export STEAM_ID="XXXXXXXXXXXXX"
+Put these in your .bashrc
+On windows you know where they go
 
+    export STEAM_API_KEY="XXXXXXXXXXXXXXXX"
+    export STEAM_ID="XXXXXXXXXXXXX"
 
 ## Usage:
 steam_music_server --serve
