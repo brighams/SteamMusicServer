@@ -1,0 +1,17 @@
+db_file:     media/starkeeper.db
+media_type:
+  - mp3
+  - ogg
+  - flac
+  - wav
+  - aiff
+  - m4a
+  - mp4
+  - midi
+  - mid
+scan_roots:
+  - $HOME/starkeeper/.steam/steam/steamapps/music/
+  - $HOME/starkeeper/.steam/steam/steamapps/
+  - /var/mnt/SteamExt4/SteamLibrary/steamapps/music/
+  - /var/mnt/SteamExt4/SteamLibrary/
+

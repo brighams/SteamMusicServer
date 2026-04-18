@@ -1,0 +1,265 @@
+use crate::steam::{OwnedApp, SteamApp};
+use regex::Regex;
+use rusqlite::{params, Connection, Result};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
+pub fn backup_and_init(db_path: &str) -> Result<Connection, Box<dyn std::error::Error>> {
+    let path = Path::new(db_path);
+
+    if path.exists() {
+        let dir = path.parent().unwrap_or(Path::new("."));
+        let name = path.file_name().unwrap().to_string_lossy();
+        let mut n = 1u32;
+        loop {
+            let backup = dir.join(format!("_{n:04}_{name}"));
+            if !backup.exists() {
+                fs::rename(path, &backup)?;
+                println!("DB: Backed up existing DB to {backup:?}");
+                break;
+            }
+            n += 1;
+        }
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let conn = Connection::open(db_path)?;
+    conn.execute_batch(
+        "PRAGMA synchronous = OFF;
+         PRAGMA journal_mode = MEMORY;
+         PRAGMA temp_store = MEMORY;
+         PRAGMA locking_mode = EXCLUSIVE;",
+    )?;
+    create_schema(&conn)?;
+    println!("DB: Initialized at {db_path}");
+    Ok(conn)
+}
+
+fn create_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE steam_apps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            appid TEXT NOT NULL,
+            name TEXT NOT NULL,
+            installdir TEXT NOT NULL,
+            install_path TEXT,
+            hq_audio TEXT,
+            library_image TEXT NOT NULL,
+            header_image TEXT NOT NULL,
+            capsule_image TEXT NOT NULL,
+            capsule_imagev5 TEXT NOT NULL,
+            steam_details TEXT NOT NULL,
+            steam_store_page TEXT NOT NULL,
+            steam_app_run TEXT NOT NULL,
+            steam_app_friends_play TEXT NOT NULL,
+            steam_app_workshop TEXT NOT NULL,
+            steam_app_details TEXT NOT NULL,
+            steam_app_screenshots TEXT NOT NULL,
+            steam_app_validate TEXT NOT NULL
+        );
+        CREATE TABLE steam_owned_apps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            appid TEXT NOT NULL,
+            name TEXT NOT NULL,
+            playtime_forever TEXT NOT NULL,
+            img_icon_url TEXT NOT NULL
+        );
+        CREATE TABLE steam_files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            media_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            dir_path TEXT NOT NULL,
+            full_path TEXT NOT NULL,
+            file_name TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            modified INTEGER NOT NULL,
+            created INTEGER NOT NULL
+        );
+        CREATE INDEX idx_steam_apps_appid ON steam_apps (appid);
+        CREATE INDEX idx_steam_apps_name ON steam_apps (name);
+        CREATE INDEX idx_steam_apps_installdir ON steam_apps (installdir);
+        CREATE INDEX idx_steam_owned_apps_name ON steam_owned_apps (name);
+        CREATE INDEX idx_steam_files_media_type ON steam_files (media_type);
+        CREATE INDEX idx_steam_files_title ON steam_files (title);
+        CREATE INDEX idx_steam_files_file_name ON steam_files (file_name);",
+    )
+}
+
+pub fn insert_steam_apps(conn: &mut Connection, apps: &[SteamApp]) -> Result<()> {
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare(
+            "INSERT INTO steam_apps VALUES (
+                NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+            )",
+        )?;
+        for app in apps {
+            stmt.execute(params![
+                app.appid,
+                app.name,
+                app.installdir,
+                app.install_path,
+                app.hq_audio,
+                app.library_image,
+                app.header_image,
+                app.capsule_image,
+                app.capsule_imagev5,
+                app.steam_details,
+                app.steam_store_page,
+                app.steam_app_run,
+                app.steam_app_friends_play,
+                app.steam_app_workshop,
+                app.steam_app_details,
+                app.steam_app_screenshots,
+                app.steam_app_validate,
+            ])?;
+        }
+    }
+    tx.commit()?;
+    println!("DB: Inserted {} steam apps", apps.len());
+    Ok(())
+}
+
+pub fn insert_owned_apps(conn: &mut Connection, apps: &[OwnedApp]) -> Result<()> {
+    let tx = conn.transaction()?;
+    {
+        let mut stmt =
+            tx.prepare("INSERT INTO steam_owned_apps VALUES (NULL,?,?,?,?)")?;
+        for app in apps {
+            stmt.execute(params![
+                app.appid,
+                app.name,
+                app.playtime_forever,
+                app.img_icon_url,
+            ])?;
+        }
+    }
+    tx.commit()?;
+    println!("DB: Inserted {} owned apps", apps.len());
+    Ok(())
+}
+
+pub fn insert_steam_files(conn: &mut Connection, files: &[PathBuf]) -> Result<()> {
+    let title_re =
+        Regex::new(r"(?i)(?:common|music)/([^/\\]+)|workshop/content/\d+/([^/\\]+)").unwrap();
+
+    let tx = conn.transaction()?;
+    {
+        let mut stmt = tx.prepare(
+            "INSERT INTO steam_files VALUES (NULL,?,?,?,?,?,?,?,?)",
+        )?;
+
+        for (i, path) in files.iter().enumerate() {
+            let path_str = path.to_string_lossy();
+
+            let title = title_re
+                .captures(&path_str)
+                .and_then(|c| c.get(1).or_else(|| c.get(2)))
+                .map(|m| m.as_str().to_owned())
+                .unwrap_or_else(|| "Unknown".to_owned());
+
+            let media_type = path
+                .extension()
+                .map(|e| e.to_string_lossy().to_uppercase())
+                .unwrap_or_else(|| "UNKNOWN".into());
+
+            let dir_path = path
+                .parent()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+
+            let file_name = path
+                .file_name()
+                .map(|f| f.to_string_lossy().into_owned())
+                .unwrap_or_default();
+
+            let meta = fs::metadata(path).ok();
+            let size = meta.as_ref().map(|m| m.len() as i64).unwrap_or(0);
+            let modified = meta
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .map(millis_since_epoch)
+                .unwrap_or(0);
+            let created = meta
+                .as_ref()
+                .and_then(|m| m.created().ok())
+                .map(millis_since_epoch)
+                .unwrap_or(0);
+
+            stmt.execute(params![
+                media_type.as_str(),
+                title,
+                dir_path,
+                path_str.as_ref(),
+                file_name,
+                size,
+                modified,
+                created,
+            ])?;
+
+            if (i + 1) % 10_000 == 0 {
+                println!("DB: {} files inserted...", i + 1);
+            }
+        }
+    }
+    tx.commit()?;
+    println!("DB: Inserted {} total files", files.len());
+    Ok(())
+}
+
+fn millis_since_epoch(t: SystemTime) -> i64 {
+    t.duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+pub fn player_db_path(scanner_db: &str) -> String {
+    let path = Path::new(scanner_db);
+    let dir = path.parent().unwrap_or(Path::new("."));
+    dir.join("player.db").to_string_lossy().into_owned()
+}
+
+pub fn open_player_db(path: &str) -> Result<Connection, Box<dyn std::error::Error>> {
+    let p = Path::new(path);
+    if let Some(parent) = p.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let conn = Connection::open(path)?;
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA synchronous = NORMAL;
+         CREATE TABLE IF NOT EXISTS steam_app_details (
+             appid            TEXT PRIMARY KEY,
+             title            TEXT NOT NULL,
+             date_updated     TEXT,
+             error            INTEGER,
+             parent_id        TEXT,
+             file_path        TEXT,
+             type             TEXT,
+             is_free          INTEGER,
+             short_description TEXT,
+             header_image     TEXT,
+             capsule_image    TEXT,
+             capsule_imagev5  TEXT,
+             website          TEXT,
+             publisher        TEXT,
+             developer        TEXT
+         );",
+    )?;
+    println!("DB: player.db opened at {path}");
+    Ok(conn)
+}
+
+pub fn sync_owned_to_player_db(conn: &Connection, apps: &[OwnedApp]) -> Result<()> {
+    let mut stmt =
+        conn.prepare("INSERT OR IGNORE INTO steam_app_details (appid, title) VALUES (?,?)")?;
+    for app in apps {
+        stmt.execute(params![app.appid, app.name])?;
+    }
+    println!("DB: Synced {} owned apps to player.db", apps.len());
+    Ok(())
+}

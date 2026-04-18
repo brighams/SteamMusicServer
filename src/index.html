@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Starkeeper Media</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font: 14px/1.5 monospace; background: #111; color: #ccc; padding: 24px; }
+h1 { color: #e8c040; margin-bottom: 12px; font-size: 1.4em; letter-spacing: 1px; }
+#summary { margin-bottom: 20px; color: #7a9; border-left: 3px solid #2a5; padding-left: 12px; }
+#summary strong { color: #afa; }
+.filter-row { margin-bottom: 20px; }
+.filter-row input {
+  background: #1e1e1e; border: 1px solid #444; color: #ccc;
+  padding: 4px 10px; width: 300px; font: inherit; border-radius: 3px;
+}
+.filter-row input:focus { outline: none; border-color: #e8c040; }
+
+h2 { font-size: 1em; color: #888; letter-spacing: 1px; text-transform: uppercase;
+     border-bottom: 1px solid #2a2a2a; padding-bottom: 6px; margin-bottom: 4px; }
+h2 small { color: #555; text-transform: none; letter-spacing: 0; margin-left: 8px; font-weight: normal; }
+.section { margin-bottom: 32px; }
+
+.row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 5px 4px; cursor: pointer; gap: 16px; border-bottom: 1px solid #1c1c1c;
+}
+.row:hover { background: #181818; }
+.row-name { color: #7ab4e8; flex: 1; }
+.row-meta { color: #555; font-size: 0.85em; flex-shrink: 0; }
+.playlists { display: flex; gap: 5px; flex-shrink: 0; }
+.pl-btn {
+  font: 0.72em monospace; padding: 1px 6px; border: 1px solid #333;
+  color: #777; text-decoration: none; border-radius: 2px; white-space: nowrap;
+}
+.pl-btn:hover { border-color: #e8c040; color: #e8c040; }
+.badges { display: flex; gap: 4px; flex-shrink: 0; }
+.badge {
+  font-size: 0.72em; padding: 1px 5px; border-radius: 2px;
+  background: #202020; color: #777; letter-spacing: 0.5px;
+}
+
+.tracks-panel { display: none; padding: 4px 8px 12px 20px; }
+.tracks-panel.open { display: block; }
+table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
+th { color: #555; text-align: left; padding: 3px 8px; border-bottom: 1px solid #1e1e1e; }
+td { padding: 2px 8px; }
+tr:hover td { background: #181818; }
+td a { color: #7ab4e8; text-decoration: none; }
+td a:hover { color: #e8c040; }
+.dim { color: #555; }
+.msg { color: #555; font-style: italic; padding: 6px 0; display: block; }
+</style>
+</head>
+<body>
+<h1>⭐ STARKEEPER MEDIA</h1>
+<div id="summary" class="msg">loading…</div>
+<div class="filter-row">
+  <input id="search" type="text" placeholder="filter by name…" oninput="filterAll(this.value)">
+</div>
+
+<div class="section">
+  <h2>Scanned Albums <small>all titles found in scan roots</small></h2>
+  <div id="albums"><span class="msg">loading…</span></div>
+</div>
+
+<div class="section">
+  <h2>Linked Games <small>matched to Steam library — may overlap with albums above</small></h2>
+  <div id="games"><span class="msg">loading…</span></div>
+</div>
+
+<script>
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function load() {
+  const [sumRes, albumsRes, gamesRes] = await Promise.all([
+    fetch('/api/summary'),
+    fetch('/api/albums'),
+    fetch('/api/games'),
+  ]);
+  const sum    = await sumRes.json();
+  const albums = await albumsRes.json();
+  const games  = await gamesRes.json();
+
+  // summary bar
+  const parts = sum.by_type.map(r => `<strong>${r.count.toLocaleString()}</strong>&thinsp;${r.media_type}`);
+  document.getElementById('summary').innerHTML =
+    `<strong>${sum.total.toLocaleString()}</strong> files &nbsp;·&nbsp; ` + parts.join(' &nbsp;·&nbsp; ');
+
+  buildAlbums(albums);
+  buildGames(games);
+}
+
+function buildAlbums(albums) {
+  const el = document.getElementById('albums');
+  if (!albums.length) { el.innerHTML = '<span class="msg">no albums found</span>'; return; }
+  el.innerHTML = '';
+  for (const a of albums) {
+    const types = (a.types || '').split(',').filter(Boolean).sort();
+    const div = document.createElement('div');
+    div.className = 'album-entry';
+    div.dataset.name = (a.title || '').toLowerCase();
+    const typeBadges = types.map(t => `<span class="badge">${esc(t)}</span>`).join('');
+    div.innerHTML = `
+      <div class="row" onclick="toggleAlbum(this,'${esc(a.title)}')">
+        <span class="row-name">${esc(a.title)}</span>
+        <span class="badges">${typeBadges}</span>
+        <span class="row-meta">${(a.track_count||0).toLocaleString()} files</span>
+        <div class="playlists" id="apl-${esc(a.title)}"></div>
+      </div>
+      <div class="tracks-panel" id="atp-${esc(a.title)}"><span class="msg">loading…</span></div>`;
+    el.appendChild(div);
+  }
+}
+
+function buildGames(games) {
+  const el = document.getElementById('games');
+  const valid = games.filter(g => g.appid);
+  if (!valid.length) { el.innerHTML = '<span class="msg">no linked games found</span>'; return; }
+  el.innerHTML = '';
+  for (const g of valid) {
+    const div = document.createElement('div');
+    div.className = 'game-entry';
+    div.dataset.name = (g.name || '').toLowerCase();
+    div.innerHTML = `
+      <div class="row" onclick="toggleGame(this,'${esc(g.appid)}')">
+        <span class="row-name">${esc(g.name)}</span>
+        <div class="playlists" id="gpl-${esc(g.appid)}"></div>
+      </div>
+      <div class="tracks-panel" id="gtp-${esc(g.appid)}"><span class="msg">loading…</span></div>`;
+    el.appendChild(div);
+  }
+}
+
+async function toggleAlbum(row, title) {
+  const key   = title;
+  const panel = document.getElementById('atp-' + key);
+  const open  = panel.classList.toggle('open');
+  if (!open || panel.dataset.loaded) return;
+  panel.dataset.loaded = '1';
+
+  const res    = await fetch('/api/album/tracks?title=' + encodeURIComponent(title));
+  const tracks = await res.json();
+
+  const types = [...new Set(tracks.map(t => t.media_type).filter(Boolean))].sort();
+  const plEl  = document.getElementById('apl-' + key);
+  const plUrl = t => `/api/album/tracks?title=${encodeURIComponent(title)}&vlc=1&type=${t}`;
+  plEl.innerHTML = types.map(t =>
+    `<a class="pl-btn" href="${plUrl(t)}" download="${esc(title)}_${t}.xspf">${t}</a>`
+  ).join('') + (types.length > 1
+    ? `<a class="pl-btn" href="/api/album/tracks?title=${encodeURIComponent(title)}&vlc=1" download="${esc(title)}_all.xspf">ALL</a>`
+    : '');
+
+  renderTracks(panel, tracks, t => `/media/${t.file_id}`);
+}
+
+async function toggleGame(row, appid) {
+  const panel = document.getElementById('gtp-' + appid);
+  const open  = panel.classList.toggle('open');
+  if (!open || panel.dataset.loaded) return;
+  panel.dataset.loaded = '1';
+
+  const res    = await fetch('/api/game/tracks?appid=' + appid);
+  const tracks = await res.json();
+
+  const types = [...new Set(tracks.map(t => t.media_type).filter(Boolean))].sort();
+  const plEl  = document.getElementById('gpl-' + appid);
+  plEl.innerHTML = types.map(t =>
+    `<a class="pl-btn" href="/api/game/tracks?appid=${appid}&vlc=1&type=${t}" download="${appid}_${t}.xspf">${t}</a>`
+  ).join('') + (types.length > 1
+    ? `<a class="pl-btn" href="/api/game/tracks?appid=${appid}&vlc=1" download="${appid}_all.xspf">ALL</a>`
+    : '');
+
+  renderTracks(panel, tracks, t => `/cdn.media/id/${t.file_id}/appid/${t.app_id}/${encodeURIComponent(t.file_name)}`);
+}
+
+function renderTracks(panel, tracks, urlFn) {
+  if (!tracks.length) {
+    panel.innerHTML = '<span class="msg">no tracks found</span>';
+    return;
+  }
+  const rows = tracks.map(t => {
+    const kb  = t.size ? (t.size / 1024).toFixed(0) + ' KB' : '';
+    return `<tr>
+      <td><a href="${urlFn(t)}" target="_blank">${esc(t.file_name)}</a></td>
+      <td><span class="badge">${esc(t.media_type)}</span></td>
+      <td class="dim">${esc(kb)}</td>
+    </tr>`;
+  }).join('');
+  panel.innerHTML = `<table><tr><th>file</th><th>type</th><th>size</th></tr>${rows}</table>`;
+}
+
+function filterAll(q) {
+  const term = q.toLowerCase();
+  for (const sel of ['.album-entry', '.game-entry']) {
+    for (const div of document.querySelectorAll(sel)) {
+      div.style.display = !term || div.dataset.name.includes(term) ? '' : 'none';
+    }
+  }
+}
+
+load().catch(e => {
+  document.getElementById('summary').textContent = 'Error: ' + e;
+});
+</script>
+</body>
+</html>

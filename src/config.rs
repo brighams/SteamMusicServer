@@ -1,0 +1,48 @@
+use serde::Deserialize;
+use std::fs;
+use std::path::Path;
+
+#[derive(Debug, Deserialize)]
+pub struct Config {
+    pub media_types: Option<String>,
+    pub media_type: Option<Vec<String>>,
+    pub db_file: String,
+    pub out_file: Option<String>,
+    pub scan_roots: Vec<String>,
+    pub threads: Option<usize>,
+    pub steam_dir: Option<String>,
+}
+
+impl Config {
+    pub fn extensions(&self) -> Vec<String> {
+        if let Some(list) = &self.media_type {
+            return list
+                .iter()
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        self.media_types
+            .as_deref()
+            .unwrap_or("mp3")
+            .split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+}
+
+pub fn load_config(path: &str) -> Config {
+    if !Path::new(path).exists() {
+        eprintln!("ERROR: config file not found: {path}");
+        std::process::exit(3);
+    }
+    let text = fs::read_to_string(path).unwrap_or_else(|e| {
+        eprintln!("ERROR: failed to read config {path}: {e}");
+        std::process::exit(3);
+    });
+    serde_yaml::from_str(&text).unwrap_or_else(|e| {
+        eprintln!("ERROR: failed to parse config {path}: {e}");
+        std::process::exit(3);
+    })
+}
