@@ -26,15 +26,12 @@ h1 { color: #e8c040; margin-bottom: 12px; font-size: 1.4em; letter-spacing: 2px;
   box-shadow: 0 0 24px rgba(160,0,255,0.25), 0 2px 8px rgba(0,0,0,0.6);
   position: sticky; top: 0; z-index: 100;
 }
-#np-inner { position: relative; }
-#np-popout {
-  position: absolute; top: 0; right: 0;
-  background: none; border: 1px solid #3a1060; color: #5a2888;
-  cursor: pointer; font-size: 0.78em; padding: 1px 6px; border-radius: 2px;
-  font-family: inherit; line-height: 1.6; transition: border-color 0.12s, color 0.12s;
-}
-#np-popout:hover { border-color: #c060f0; color: #c060f0; box-shadow: 0 0 6px rgba(180,60,240,0.35); }
 #np-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+#np-album {
+  color: #6030a0; font-size: 0.8em; flex-shrink: 0; max-width: 220px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: right; margin-left: auto; padding-left: 12px;
+}
 .np-btn {
   background: rgba(180,0,255,0.08); border: 1px solid #6a28a0; color: #b080d8;
   cursor: pointer; font-size: 0.85em; padding: 2px 8px; border-radius: 3px;
@@ -204,8 +201,6 @@ tr.banned-track:hover td { background: rgba(80,0,40,0.12); color: #5a3068 !impor
 <audio id="audio-player"></audio>
 
 <div id="now-playing">
-  <div id="np-inner">
-  <button id="np-popout" onclick="openPopout()" title="Pop out player">⧉</button>
   <div id="np-bar">
     <button class="np-btn" id="np-play"   onclick="togglePlayPause()" title="Play / Pause">▶</button>
     <button class="np-btn" id="np-stop"   onclick="stopPlayback()"    title="Stop">■</button>
@@ -217,9 +212,9 @@ tr.banned-track:hover td { background: rgba(80,0,40,0.12); color: #5a3068 !impor
       <span id="np-label">Now Playing</span>
       <span id="np-filename">—</span>
     </div>
+    <span id="np-album"></span>
   </div>
   <div id="np-tracks"></div>
-  </div>
 </div>
 
 <div class="filter-row">
@@ -432,12 +427,6 @@ const togglePlayPause = () => {
   if (AUDIO.paused) { AUDIO.play() } else { AUDIO.pause() }
 }
 
-let popupWin = null
-const openPopout = () => {
-  if (popupWin && !popupWin.closed) { popupWin.focus(); return }
-  popupWin = window.open('/popup', 'skplayer',
-    'popup,width=540,height=110,resizable=yes')
-}
 
 const toggleRandom = () => {
   randomMode = !randomMode
@@ -556,7 +545,9 @@ const refreshNowPlaying = () => {
   const bar = document.getElementById('now-playing')
   if (player.idx < 0 || !player.tracks.length) { bar.style.display = 'none'; return }
   bar.style.display = 'block'
-  document.getElementById('np-filename').textContent = player.tracks[player.idx].file_name
+  const t = player.tracks[player.idx]
+  document.getElementById('np-filename').textContent = t.file_name
+  document.getElementById('np-album').textContent = t.title || TRACK_REG[player.albumId]?.title || ''
   document.getElementById('np-tracks').innerHTML = tracksTable(player.tracks, player.urlFn, null, true)
   refreshHighlight()
 }
