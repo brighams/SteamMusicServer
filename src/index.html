@@ -26,7 +26,8 @@ h1 { color: #e8c040; margin-bottom: 12px; font-size: 1.4em; letter-spacing: 2px;
   box-shadow: 0 0 24px rgba(160,0,255,0.25), 0 2px 8px rgba(0,0,0,0.6);
   position: sticky; top: 0; z-index: 100;
 }
-#np-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+#np-top { display: flex; align-items: center; gap: 6px; }
+#np-bar { display: flex; align-items: center; gap: 6px; margin-top: 6px; margin-bottom: 6px; }
 #np-album {
   color: #6030a0; font-size: 0.8em; flex-shrink: 0; max-width: 220px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -48,11 +49,15 @@ h1 { color: #e8c040; margin-bottom: 12px; font-size: 1.4em; letter-spacing: 2px;
 #np-label { color: #c060f0; font-size: 0.72em; letter-spacing: 2px; text-transform: uppercase;
   flex-shrink: 0; text-shadow: 0 0 8px rgba(180,60,255,0.7); }
 #np-filename { color: #f0d8ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95em; }
-#np-tracks { max-height: 200px; overflow-y: auto; scrollbar-color: #7020a0 #0e0020; scrollbar-width: thin; }
-#np-tracks::-webkit-scrollbar { width: 6px; }
-#np-tracks::-webkit-scrollbar-track { background: #0e0020; }
-#np-tracks::-webkit-scrollbar-thumb { background: #7020a0; border-radius: 3px; }
-#np-tracks::-webkit-scrollbar-thumb:hover { background: #b040e0; }
+.np-queue-layout { display: flex; gap: 10px; align-items: flex-start; }
+.np-queue-list { flex: 1; min-width: 0; max-height: 200px; overflow-y: auto;
+  scrollbar-color: #7020a0 #0e0020; scrollbar-width: thin; }
+.np-queue-list::-webkit-scrollbar { width: 6px; }
+.np-queue-list::-webkit-scrollbar-track { background: #0e0020; }
+.np-queue-list::-webkit-scrollbar-thumb { background: #7020a0; border-radius: 3px; }
+.np-queue-list::-webkit-scrollbar-thumb:hover { background: #b040e0; }
+.np-album-art { width: 120px; height: auto; border-radius: 4px;
+  flex-shrink: 0; border: 1px solid #4a1070; opacity: 0.88; display: block; }
 #np-tracks table { background: transparent; }
 #np-tracks th { color: #6a2090; border-bottom-color: #2a0050; }
 #np-tracks td { color: #c8a8e8; }
@@ -192,6 +197,14 @@ tr.banned-track:hover td { background: rgba(80,0,40,0.12); color: #5a3068 !impor
   color: #3a1848; font-size: 0.7em; letter-spacing: 2px; text-transform: uppercase;
   padding: 10px 4px 4px; border-top: 1px solid #1e0830; margin-top: 6px;
 }
+
+/* ── visualizer ──────────────────────────────────────────────────────── */
+body { position: relative; z-index: 1; }
+#visualizer {
+  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+  z-index: 0; pointer-events: none; border: none;
+  opacity: 0; transition: opacity 1.5s ease;
+}
 </style>
 </head>
 <body>
@@ -199,22 +212,28 @@ tr.banned-track:hover td { background: rgba(80,0,40,0.12); color: #5a3068 !impor
 <div id="summary" class="msg">loading…</div>
 
 <audio id="audio-player"></audio>
+<iframe id="visualizer"></iframe>
 
 <div id="now-playing">
-  <div id="np-bar">
-    <button class="np-btn" id="np-play"   onclick="togglePlayPause()" title="Play / Pause">▶</button>
-    <button class="np-btn" id="np-stop"   onclick="stopPlayback()"    title="Stop">■</button>
-    <button class="np-btn" id="np-skip"   onclick="skipTrack()"       title="Skip">⏭</button>
-    <button class="np-btn" id="np-random" onclick="toggleRandom()"    title="Random mode">🎲</button>
-    <input  id="np-volume" type="range" min="0" max="1" step="0.01" value="1"
-            oninput="AUDIO.volume=this.value" title="Volume">
+  <div id="np-top">
+    <button class="np-btn" id="np-expand" onclick="toggleNpExpand()" title="Expand / Collapse">▾</button>
     <div id="np-track">
       <span id="np-label">Now Playing</span>
       <span id="np-filename">—</span>
     </div>
     <span id="np-album"></span>
   </div>
-  <div id="np-tracks"></div>
+  <div id="np-body">
+    <div id="np-bar">
+      <button class="np-btn" id="np-play"   onclick="togglePlayPause()" title="Play / Pause">▶</button>
+      <button class="np-btn" id="np-stop"   onclick="stopPlayback()"    title="Stop">■</button>
+      <button class="np-btn" id="np-skip"   onclick="skipTrack()"       title="Skip">⏭</button>
+      <button class="np-btn" id="np-random" onclick="toggleRandom()"    title="Random mode">🎲</button>
+      <input  id="np-volume" type="range" min="0" max="1" step="0.01" value="1"
+              oninput="AUDIO.volume=this.value" title="Volume">
+    </div>
+    <div id="np-tracks"></div>
+  </div>
 </div>
 
 <div class="filter-row">
@@ -375,8 +394,8 @@ let randomMode = false
 let ALL_ST_ALBUMS = []
 let ALL_DM_ALBUMS = []
 
-AUDIO.onplay  = () => { document.getElementById('np-play').textContent = '⏸' }
-AUDIO.onpause = () => { document.getElementById('np-play').textContent = '▶' }
+AUDIO.onplay  = () => { document.getElementById('np-play').textContent = '⏸'; start_viz() }
+AUDIO.onpause = () => { document.getElementById('np-play').textContent = '▶'; stop_viz() }
 AUDIO.onended = () => {
   if (randomMode) {
     playRandom()
@@ -391,6 +410,7 @@ const playIdx = (idx) => {
   AUDIO.play()
   refreshNowPlaying()
   refreshHighlight()
+  on_track_change()
 }
 
 const playFrom = (albumId, fileId) => {
@@ -412,6 +432,7 @@ const stopPlayback = () => {
   player.tracks  = []
   player.idx     = -1
   document.getElementById('now-playing').style.display = 'none'
+  stop_viz()
   refreshHighlight()
 }
 
@@ -433,6 +454,14 @@ const toggleRandom = () => {
   document.getElementById('np-random').classList.toggle('active', randomMode)
 }
 
+const toggleNpExpand = () => {
+  const body = document.getElementById('np-body')
+  const btn  = document.getElementById('np-expand')
+  const open = body.style.display === 'none'
+  body.style.display = open ? '' : 'none'
+  btn.textContent = open ? '▾' : '▸'
+}
+
 const playRandom = async () => {
   const pool = [...ALL_ST_ALBUMS, ...ALL_DM_ALBUMS].filter(a => (a.album_rating ?? 0) >= 0)
   if (!pool.length) return
@@ -445,7 +474,7 @@ const playRandom = async () => {
   if (!tracks.length) return
   const types = [...new Set(tracks.map(t => t.media_type).filter(Boolean))].sort()
   if (!TRACK_REG[albumId]) {
-    TRACK_REG[albumId] = { tracks, urlFn, allTypes: types, title: album.title, scanType }
+    TRACK_REG[albumId] = { tracks, urlFn, allTypes: types, title: album.title, scanType, capsule_image: album.capsule_image || null }
   }
   const filtered = tracks.filter(t => !isTypeOff(albumId, t.media_type) && (t.rating ?? 0) >= 0)
   const queue = filtered.length ? filtered : tracks.filter(t => (t.rating ?? 0) >= 0)
@@ -476,6 +505,271 @@ const playBtnClick = (btn) => {
   playFrom(albumId, fileId)
 }
 
+// ── visualizer ────────────────────────────────────────────────────────────────
+
+const VIZ_HTML = `<!DOCTYPE html><html><head><style>
+*{margin:0;padding:0}body{background:#000;overflow:hidden}canvas{display:block;width:100vw;height:100vh}
+</style></head><body><canvas id="c"></canvas><script>
+const canvas=document.getElementById('c')
+const gl=canvas.getContext('webgl')
+const resize=()=>{canvas.width=innerWidth;canvas.height=innerHeight;gl.viewport(0,0,canvas.width,canvas.height)}
+window.addEventListener('resize',resize);resize()
+
+const VERT='attribute vec2 a_pos;void main(){gl_Position=vec4(a_pos,0,1);}'
+const PAL='vec3 pal(float t,sampler2D s){t=fract(t);return texture2D(s,vec2(t,t)).rgb;}'
+
+const FRAGS=[\`precision mediump float;
+uniform float u_time,u_bass,u_mid,u_treble,u_beat;uniform vec2 u_res;
+uniform sampler2D u_palette,u_wave,u_freq;
+\${PAL}
+void main(){
+  vec2 uv=(gl_FragCoord.xy/u_res-.5)*vec2(u_res.x/u_res.y,1.);
+  float t=u_time*.35,e=.08+u_bass*.92+u_beat*.3;
+  uv*=1.+u_bass*.8+u_beat*.4;
+  float v=sin(uv.x*3.+t+u_bass*5.)+sin(uv.y*2.5-t*.9+u_mid*3.)
+         +sin((uv.x+uv.y)*4.5+t*1.2)+sin(length(uv)*7.-t*2.5+u_bass*8.);
+  v=v*.125+.5;
+  float v2=(sin(uv.x*5.-t*1.5+u_treble*4.)+sin(uv.y*6.+t*.8))*.25+.5;
+  gl_FragColor=vec4((pal(v,u_palette)*.7+pal(v2,u_palette)*.3)*e,1.);
+}\`,
+\`precision mediump float;
+uniform float u_time,u_bass,u_mid,u_treble,u_beat;uniform vec2 u_res;
+uniform sampler2D u_palette,u_wave,u_freq;
+\${PAL}
+void main(){
+  vec2 uv=(gl_FragCoord.xy/u_res-.5);uv.x*=u_res.x/u_res.y;
+  float a=atan(uv.y,uv.x),d=length(uv),t=u_time*.5;
+  float v=fract(.25/(d+.001)+t+u_bass*.8+a/6.28318+u_mid*.4+t*.1);
+  float ring=1.-smoothstep(0.,.03,abs(fract(d*3.-t*2.+u_bass*2.)-.5));
+  vec3 col=pal(v,u_palette)+ring*pal(fract(v+.5),u_palette)*u_beat;
+  col*=(.1+u_bass*.9)*(1.-smoothstep(.7,1.3,d));
+  gl_FragColor=vec4(col,1.);
+}\`,
+\`precision mediump float;
+uniform float u_time,u_bass,u_mid,u_treble,u_beat;uniform vec2 u_res;
+uniform sampler2D u_palette,u_wave,u_freq;
+\${PAL}
+void main(){
+  vec2 uv=(gl_FragCoord.xy/u_res-.5);uv.x*=u_res.x/u_res.y;
+  float t=u_time*.15,N=floor(4.+u_mid*5.)*2.;
+  float a=atan(uv.y,uv.x),d=length(uv),seg=6.28318/N;
+  a=mod(a,seg);if(a>seg*.5)a=seg-a;
+  vec2 p=vec2(cos(a),sin(a))*d*(1.5+u_bass)+vec2(t*.4,t*.25);
+  float v=(sin(p.x*4.+t)*sin(p.y*3.-t*.8)+sin(length(p)*6.-t*2.+u_bass*5.))*.25+.5;
+  float v2=cos(p.x*2.5-p.y*3.5+t*1.3)*.5+.5;
+  gl_FragColor=vec4((pal(v,u_palette)*.6+pal(v2,u_palette)*.4)*(.12+u_bass*.88+u_beat*.3),1.);
+}\`,
+\`precision mediump float;
+uniform float u_time,u_bass,u_mid,u_treble,u_beat;uniform vec2 u_res;
+uniform sampler2D u_palette,u_wave,u_freq;
+\${PAL}
+void main(){
+  vec2 uv=(gl_FragCoord.xy/u_res-.5)*vec2(u_res.x/u_res.y,1.);
+  float t=u_time*.25,a=atan(uv.y,uv.x),d=length(uv);
+  float an=(a+3.14159)/6.28318;
+  float wave=texture2D(u_wave,vec2(an,.5)).r*2.-1.;
+  float freq=texture2D(u_freq,vec2(an,.5)).r;
+  float r=.30+u_bass*.08+wave*.10*(1.+u_bass*1.5)+u_beat*.04;
+  float line=1.-smoothstep(0.,.012,abs(d-r));
+  float bg=(1.-smoothstep(0.,.003,abs(d-.135)))*.4+(1.-smoothstep(0.,.003,abs(d-.27)))*.2
+          +(1.-smoothstep(0.,.003,abs(d-.405)))*.13+(1.-smoothstep(0.,.003,abs(d-.54)))*.1;
+  gl_FragColor=vec4((line*pal(an+t,u_palette)+bg*.25*pal(freq,u_palette))*(.1+u_bass*.9+u_beat*.4),1.);
+}\`,
+\`precision mediump float;
+uniform float u_time,u_bass,u_mid,u_treble,u_beat;uniform vec2 u_res;
+uniform sampler2D u_palette,u_wave,u_freq;
+\${PAL}
+float h(vec2 p){p=fract(p*vec2(443.9,397.3));p+=dot(p,p+19.19);return fract(p.x*p.y);}
+float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(h(i),h(i+vec2(1,0)),f.x),mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x),f.y);}
+float fbm(vec2 p){float v=0.,a=.5;for(int i=0;i<6;i++){v+=a*n(p);p=p*2.1+vec2(1.7,9.2);a*=.5;}return v;}
+void main(){
+  vec2 uv=(gl_FragCoord.xy/u_res-.5)*vec2(u_res.x/u_res.y,1.);
+  float t=u_time*.08,e=.08+u_bass*.92+u_beat*.5;
+  vec2 p=uv*(1.5+u_mid)+t;
+  float d=.5+.5*sin(fbm(p+fbm(p+fbm(p)))*6.28318+u_bass*3.+t*2.);
+  float d2=.5+.5*cos(fbm(p*1.5+u_treble*.5+3.7)*6.28318-t);
+  gl_FragColor=vec4((pal(d,u_palette)*.7+pal(d2,u_palette)*.3)*e,1.);
+}\`]
+
+const compile=(type,src)=>{const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))console.error(gl.getShaderInfoLog(s));return s}
+
+const quad=(()=>{const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);return b})()
+
+const build_prog=src=>{
+  const p=gl.createProgram()
+  gl.attachShader(p,compile(gl.VERTEX_SHADER,VERT));gl.attachShader(p,compile(gl.FRAGMENT_SHADER,src))
+  gl.linkProgram(p);gl.useProgram(p)
+  gl.bindBuffer(gl.ARRAY_BUFFER,quad)
+  const loc=gl.getAttribLocation(p,'a_pos')
+  gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0)
+  const U=n=>gl.getUniformLocation(p,n)
+  return{p,Ut:U('u_time'),Ub:U('u_bass'),Um:U('u_mid'),Utr:U('u_treble'),Ube:U('u_beat'),
+         Ur:U('u_res'),Up:U('u_palette'),Uw:U('u_wave'),Uf:U('u_freq')}
+}
+
+const mk_tex=(w,h,d)=>{const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,d);return t}
+
+const dflt_pal=()=>{const d=new Uint8Array(256);
+  for(let i=0;i<64;i++){const t=i/63;d[i*4]=(t*180+10)|0;d[i*4+1]=(t*20)|0;d[i*4+2]=(t*230+25)|0;d[i*4+3]=255}
+  return d}
+
+const pal_tex =mk_tex(8,8,dflt_pal())
+const wave_tex=mk_tex(256,1,new Uint8Array(1024).fill(128))
+const freq_tex=mk_tex(128,1,new Uint8Array(512).fill(0))
+
+const up_gray=(tex,w,h,src)=>{
+  const d=new Uint8Array(w*h*4)
+  for(let i=0;i<w*h;i++){const v=src[i]??128;d[i*4]=d[i*4+1]=d[i*4+2]=v;d[i*4+3]=255}
+  gl.bindTexture(gl.TEXTURE_2D,tex)
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,d)
+}
+
+let mode=0,bass=0,mid=0,treble=0,beat=0,viz_time=0
+let prog=build_prog(FRAGS[0])
+
+window.addEventListener('message',e=>{
+  const d=e.data;if(!d?.viz)return
+  if(d.bass!==undefined)bass=d.bass
+  if(d.mid!==undefined)mid=d.mid
+  if(d.treble!==undefined)treble=d.treble
+  if(d.beat!==undefined)beat=d.beat
+  if(d.time!==undefined)viz_time=d.time
+  if(d.wave)up_gray(wave_tex,256,1,d.wave)
+  if(d.freq)up_gray(freq_tex,128,1,d.freq)
+  if(d.palette){
+    const w=d.pal_w||8,h=d.pal_h||8
+    gl.bindTexture(gl.TEXTURE_2D,pal_tex)
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(d.palette))
+  }
+  if(d.mode!==undefined&&d.mode!==mode){mode=d.mode;prog=build_prog(FRAGS[mode%FRAGS.length])}
+})
+
+const render=()=>{
+  requestAnimationFrame(render)
+  const{p,Ut,Ub,Um,Utr,Ube,Ur,Up,Uw,Uf}=prog
+  gl.useProgram(p)
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,pal_tex);gl.uniform1i(Up,0)
+  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,wave_tex);gl.uniform1i(Uw,1)
+  gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,freq_tex);gl.uniform1i(Uf,2)
+  gl.uniform1f(Ut,viz_time);gl.uniform1f(Ub,bass);gl.uniform1f(Um,mid)
+  gl.uniform1f(Utr,treble);gl.uniform1f(Ube,beat)
+  gl.uniform2f(Ur,canvas.width,canvas.height)
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4)
+}
+render()
+<\/script></body></html>`
+
+const VIZ_IFRAME = document.getElementById('visualizer')
+VIZ_IFRAME.src = URL.createObjectURL(new Blob([VIZ_HTML], { type: 'text/html' }))
+
+const BODY_BG_VIZ     = 'rgba(14, 8, 32, 0.65)'
+const BODY_BG_DEFAULT = 'linear-gradient(160deg, #0e0820 0%, #160d30 50%, #0c0618 100%)'
+const FREQ_BINS = 128
+const WAVE_BINS = 256
+const freq_data = new Uint8Array(FREQ_BINS)
+const wave_data = new Uint8Array(WAVE_BINS)
+let audio_ctx = null
+let analyser   = null
+let viz_raf    = null
+let viz_start  = null
+let beat       = 0
+let prev_bass  = 0
+let last_beat_t = 0
+
+const ensure_audio_ctx = () => {
+  if (audio_ctx) return
+  audio_ctx = new AudioContext()
+  const source = audio_ctx.createMediaElementSource(AUDIO)
+  analyser = audio_ctx.createAnalyser()
+  analyser.fftSize = WAVE_BINS
+  analyser.smoothingTimeConstant = 0.82
+  source.connect(analyser)
+  analyser.connect(audio_ctx.destination)
+}
+
+const freq_avg = (lo, hi) => {
+  let s = 0
+  for (let i = lo; i < hi; i++) s += freq_data[i]
+  return s / ((hi - lo) * 255)
+}
+
+const PAL_TEX_SIZE = 128
+
+const fetch_palette = async (img_url) => {
+  const img = new Image()
+  img.crossOrigin = 'anonymous'
+  await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = img_url })
+  const c = document.createElement('canvas')
+  c.width = c.height = PAL_TEX_SIZE
+  const ctx = c.getContext('2d')
+  ctx.drawImage(img, 0, 0, PAL_TEX_SIZE, PAL_TEX_SIZE)
+  return ctx.getImageData(0, 0, PAL_TEX_SIZE, PAL_TEX_SIZE).data
+}
+
+const MODE_COUNT = 5
+
+const on_track_change = async () => {
+  const mode = Math.floor(Math.random() * MODE_COUNT)
+  const t = viz_start ? (performance.now() - viz_start) / 1000 : 0
+  VIZ_IFRAME.contentWindow?.postMessage({ viz: true, mode, time: t }, '*')
+  const img_url = TRACK_REG[player.albumId]?.capsule_image
+  if (!img_url) return
+  try {
+    const palette = await fetch_palette(img_url)
+    VIZ_IFRAME.contentWindow?.postMessage({ viz: true, palette: Array.from(palette), pal_w: PAL_TEX_SIZE, pal_h: PAL_TEX_SIZE }, '*')
+  } catch (_) {}
+}
+
+const start_viz = () => {
+  ensure_audio_ctx()
+  if (audio_ctx.state === 'suspended') audio_ctx.resume()
+  if (!viz_start) viz_start = performance.now()
+  VIZ_IFRAME.style.opacity = '1'
+  document.body.style.background = BODY_BG_VIZ
+  if (viz_raf) return
+  const tick = () => {
+    viz_raf = requestAnimationFrame(tick)
+    analyser.getByteFrequencyData(freq_data)
+    analyser.getByteTimeDomainData(wave_data)
+    const t        = (performance.now() - viz_start) / 1000
+    const raw_bass = freq_avg(0, 8)
+    const raw_mid  = freq_avg(8, 48)
+    const raw_treble = freq_avg(48, 128)
+    if (raw_bass > prev_bass * 1.35 && raw_bass > 0.15 && t - last_beat_t > 0.1) {
+      beat = 1.0
+      last_beat_t = t
+    }
+    beat     *= 0.88
+    prev_bass = prev_bass * 0.8 + raw_bass * 0.2
+    VIZ_IFRAME.contentWindow?.postMessage({
+      viz: true,
+      bass:   raw_bass,
+      mid:    raw_mid,
+      treble: raw_treble,
+      beat,
+      wave:   Array.from(wave_data),
+      freq:   Array.from(freq_data),
+      time:   t,
+    }, '*')
+  }
+  viz_raf = requestAnimationFrame(tick)
+}
+
+const stop_viz = () => {
+  if (viz_raf) { cancelAnimationFrame(viz_raf); viz_raf = null }
+  beat = 0; prev_bass = 0
+  VIZ_IFRAME.style.opacity = '0'
+  document.body.style.background = BODY_BG_DEFAULT
+}
+
 // ── section collapse ──────────────────────────────────────────────────────────
 
 const toggleSection = (h2) => {
@@ -488,8 +782,9 @@ const toggleSection = (h2) => {
 
 let TYPE_ORDER = []  // lowercase, config priority order
 
-const TRACK_REG = {}  // albumId -> { tracks, urlFn, allTypes, title, scanType }
-const TYPE_OFF  = {}  // albumId -> Set<type>
+const TRACK_REG    = {}  // albumId -> { tracks, urlFn, allTypes, title, scanType, capsule_image }
+const TYPE_OFF     = {}  // albumId -> Set<type>
+const ALBUM_IMAGES = {}  // albumId -> capsule_image url | null
 
 const isTypeOff = (albumId, type) => !!(TYPE_OFF[albumId] && TYPE_OFF[albumId].has(type))
 
@@ -548,7 +843,12 @@ const refreshNowPlaying = () => {
   const t = player.tracks[player.idx]
   document.getElementById('np-filename').textContent = t.file_name
   document.getElementById('np-album').textContent = t.title || TRACK_REG[player.albumId]?.title || ''
-  document.getElementById('np-tracks').innerHTML = tracksTable(player.tracks, player.urlFn, null, true)
+  const lib_img = TRACK_REG[player.albumId]?.capsule_image
+  const art_html = lib_img
+    ? `<img class="np-album-art" src="${esc(lib_img)}" alt="">`
+    : ''
+  document.getElementById('np-tracks').innerHTML =
+    `<div class="np-queue-layout"><div class="np-queue-list">${tracksTable(player.tracks, player.urlFn, null, true)}</div></div>`
   refreshHighlight()
 }
 
@@ -574,20 +874,21 @@ const tracksTable = (tracks, urlFn, albumId, fromQueue) => {
       : `data-album-id="${esc(albumId)}" data-file-id="${t.file_id}"`
     const bannedCls = rating < 0 ? ' banned-track' : ''
     const ratingCol = fromQueue ? '' : `<td>${rating_widget_html(t.join_key || '', 'track', rating)}</td>`
+    const sizeCol   = fromQueue ? '' : `<td class="dim">${esc(kb)}</td>`
+    const typeCol   = fromQueue ? '' : `<td><span class="badge">${esc(t.media_type)}</span></td>`
     const pathCol   = SHOW_PATHS ? `<td class="dim">${esc(t.full_path)}</td>` : ''
     return `<tr data-type="${esc(t.media_type)}" data-url="${esc(url)}"${hidden} class="${bannedCls}">
       <td class="play-col"><button class="play-btn" ${btnData} onclick="playBtnClick(this)">▶</button></td>
       <td>${esc(t.file_name)}</td>
       <td class="play-count">${plays}</td>
-      <td class="dim">${esc(kb)}</td>
-      ${ratingCol}
-      <td><span class="badge">${esc(t.media_type)}</span></td>
-      ${pathCol}
+      ${sizeCol}${ratingCol}${typeCol}${pathCol}
     </tr>`
   }).join('')
   const ratingTh = fromQueue ? '' : '<th></th>'
+  const sizeTh   = fromQueue ? '' : '<th>size</th>'
+  const typeTh   = fromQueue ? '' : '<th>type</th>'
   const pathTh   = SHOW_PATHS ? '<th>path</th>' : ''
-  return `<table><tr><th></th><th>file</th><th>plays</th><th>size</th>${ratingTh}<th>type</th>${pathTh}</tr>${rows}</table>`
+  return `<table><tr><th></th><th>file</th><th>plays</th>${sizeTh}${ratingTh}${typeTh}${pathTh}</tr>${rows}</table>`
 }
 
 // ── page build ────────────────────────────────────────────────────────────────
@@ -638,6 +939,7 @@ function buildAlbumEntry(a, scanType, prefix) {
   const types = (a.types || '').split(',').filter(Boolean).sort()
   const id    = prefix + '_' + encodeURIComponent(a.title).replace(/'/g, '%27')
 
+  ALBUM_IMAGES[id] = a.capsule_image || null
   initTypeDefaults(id, types)
 
   const div = document.createElement('div')
@@ -710,7 +1012,7 @@ async function toggleAlbum(row) {
   const tracks = await fetch(base).then(r => r.json())
   const types  = [...new Set(tracks.map(t => t.media_type).filter(Boolean))].sort()
 
-  TRACK_REG[id] = { tracks, urlFn, allTypes: types, title, scanType }
+  TRACK_REG[id] = { tracks, urlFn, allTypes: types, title, scanType, capsule_image: ALBUM_IMAGES[id] || null }
 
   document.getElementById('fl-' + id)?.classList.add('loaded')
   panel.innerHTML = tracksTable(tracks, urlFn, id, false)

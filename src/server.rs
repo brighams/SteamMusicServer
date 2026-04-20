@@ -90,8 +90,10 @@ const ALBUMS_LIST: &str = "
            GROUP_CONCAT(DISTINCT sf.media_type)   AS types,
            MIN(sf.album_key)                      AS album_key,
            COALESCE(ast.rating, 0)                AS album_rating,
-           COALESCE(SUM(ts.play_count), 0)        AS album_play_count
+           COALESCE(SUM(ts.play_count), 0)        AS album_play_count,
+           MAX(sa.capsule_image)                  AS capsule_image
     FROM steam_files sf
+    LEFT JOIN steam_apps sa  ON sa.installdir = sf.title
     LEFT JOIN pdb.album_stats ast ON ast.album_key = sf.album_key
     LEFT JOIN pdb.track_stats  ts  ON ts.join_key  = sf.join_key
     WHERE (:scan_type IS NULL OR sf.scan_type = :scan_type)
@@ -539,6 +541,58 @@ async fn api_set_rating(State(s): State<AppState>, Json(body): Json<RatingBody>)
     if result.is_ok() { StatusCode::OK } else { StatusCode::INTERNAL_SERVER_ERROR }
 }
 
+// ── image cache ───────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ImageCacheQuery {
+    url: String,
+}
+
+async fn api_image_cache(Query(q): Query<ImageCacheQuery>) -> Response {
+    let url = q.url.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, String), StatusCode> {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+        use std::io::Read;
+
+        let cache_dir = PathBuf::from("cache/images");
+        std::fs::create_dir_all(&cache_dir)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        let mut hasher = DefaultHasher::new();
+        url.hash(&mut hasher);
+        let hash = hasher.finish();
+
+        let ext = url.split('?').next().unwrap_or(&url)
+            .rsplit('.').next()
+            .filter(|e| ["jpg","jpeg","png","webp","gif"].contains(e))
+            .unwrap_or("jpg");
+
+        let cache_path = cache_dir.join(format!("{hash:016x}.{ext}"));
+
+        if !cache_path.exists() {
+            let resp = ureq::get(&url).call().map_err(|_| StatusCode::BAD_GATEWAY)?;
+            let mut buf = Vec::new();
+            resp.into_reader().read_to_end(&mut buf).map_err(|_| StatusCode::BAD_GATEWAY)?;
+            std::fs::write(&cache_path, &buf).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        }
+
+        let data = std::fs::read(&cache_path).map_err(|_| StatusCode::NOT_FOUND)?;
+        let mime = MimeGuess::from_path(&cache_path).first_raw().unwrap_or("image/jpeg").to_owned();
+        Ok((data, mime))
+    }).await;
+
+    match result {
+        Ok(Ok((data, mime))) => Response::builder()
+            .header(header::CONTENT_TYPE, mime)
+            .header(header::CACHE_CONTROL, "public, max-age=604800")
+            .body(Body::from(data))
+            .unwrap(),
+        Ok(Err(status)) => status.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
 // ── CDN ───────────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -845,6 +899,7 @@ pub async fn start(bind_addr: &str, db_path: &str, player_db: &str, steam_detail
         .route("/api/random/track", get(api_random_track))
         .route("/api/random/game/music", get(api_random_track))
         .route("/api/rating", post(api_set_rating))
+        .route("/api/image-cache", get(api_image_cache))
         .route(
             "/api/validate/cdn.media/id/{file_id}/appid/{appid}/{file_name}",
             get(cdn_validate),
