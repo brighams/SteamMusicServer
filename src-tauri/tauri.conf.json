@@ -1,5 +1,5 @@
 {
-  "productName": "Starkeeper Music",
+  "productName": "Starkeeper Music Tower",
   "version": "0.1.0",
   "identifier": "io.starkeeper.music",
   "build": {
@@ -8,7 +8,8 @@
   "app": {
     "windows": [
       {
-        "title": "Starkeeper Music",
+        "title": "Starkeeper Music Tower",
+        "url": "http://localhost:8086",
         "width": 1280,
         "height": 800,
         "resizable": true

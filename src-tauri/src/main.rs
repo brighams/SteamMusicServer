@@ -31,6 +31,12 @@ fn main() {
     tauri::Builder::default()
         .setup(|_app| {
             tauri::async_runtime::spawn(init_and_serve());
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            loop {
+                if std::net::TcpStream::connect("127.0.0.1:8086").is_ok() { break; }
+                if std::time::Instant::now() >= deadline { break; }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

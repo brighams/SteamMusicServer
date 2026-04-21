@@ -27,18 +27,7 @@ pub fn backup_and_init(db_path: &str) -> Result<Connection, Box<dyn std::error::
     let path = Path::new(db_path);
 
     if path.exists() {
-        let dir = path.parent().unwrap_or(Path::new("."));
-        let name = path.file_name().unwrap().to_string_lossy();
-        let mut n = 1u32;
-        loop {
-            let backup = dir.join(format!("_{n:04}_{name}"));
-            if !backup.exists() {
-                fs::rename(path, &backup)?;
-                println!("DB: Backed up existing DB to {backup:?}");
-                break;
-            }
-            n += 1;
-        }
+        fs::remove_file(path)?;
     }
 
     if let Some(parent) = path.parent() {
