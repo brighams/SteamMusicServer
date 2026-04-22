@@ -249,20 +249,21 @@ render()
 window.parent.postMessage({viz_ready:true},'*')
 <\/script></body></html>`
 
-const VIZ_IFRAME = document.getElementById('visualizer')
-VIZ_IFRAME.src = URL.createObjectURL(new Blob([VSART_HTML], { type: 'text/html' }))
+const BLOB_URL = URL.createObjectURL(new Blob([VSART_HTML], { type: 'text/html' }))
+const VIS_CONTAINER = document.getElementById('vis-container')
+let VIZ_FRAMES = []
 
 const AUDIO = document.getElementById('audio-player')
 const FREQ_BINS = 128
 const freq_data = new Uint8Array(FREQ_BINS)
-const wave_data = new Uint8Array(256)
-let audio_ctx = null
-let analyser   = null
-let viz_raf    = null
-let viz_start  = null
-let beat       = 0
-let prev_bass  = 0
+let audio_ctx   = null
+let analyser    = null
+let viz_raf     = null
+let viz_start   = null
+let beat        = 0
+let prev_bass   = 0
 let last_beat_t = 0
+let _hidden     = false
 
 const ensure_audio_ctx = () => {
   if (audio_ctx) return
@@ -281,11 +282,15 @@ const freq_avg = (lo, hi) => {
   return s / ((hi - lo) * 255)
 }
 
+const _broadcast = (msg) => {
+  for (const f of VIZ_FRAMES) f.contentWindow?.postMessage(msg, '*')
+}
+
 const start_vsvis = () => {
   ensure_audio_ctx()
   if (audio_ctx.state === 'suspended') audio_ctx.resume()
   if (!viz_start) viz_start = performance.now()
-  VIZ_IFRAME.style.opacity = '1'
+  if (!_hidden) VIS_CONTAINER.style.opacity = '1'
   if (viz_raf) return
   const tick = () => {
     viz_raf = requestAnimationFrame(tick)
@@ -298,11 +303,7 @@ const start_vsvis = () => {
     }
     beat     *= 0.88
     prev_bass = prev_bass * 0.8 + raw_bass * 0.2
-    VIZ_IFRAME.contentWindow?.postMessage({
-      viz: true,
-      freq: Array.from(freq_data),
-      time: t,
-    }, '*')
+    _broadcast({ viz: true, freq: Array.from(freq_data), time: t })
   }
   viz_raf = requestAnimationFrame(tick)
 }
@@ -310,48 +311,74 @@ const start_vsvis = () => {
 const stop_vsvis = () => {
   if (viz_raf) { cancelAnimationFrame(viz_raf); viz_raf = null }
   beat = 0; prev_bass = 0
-  VIZ_IFRAME.style.opacity = '0'
+  VIS_CONTAINER.style.opacity = '0'
 }
 
-const on_track_change_vsvis = () => {
-  VIZ_IFRAME.contentWindow?.postMessage({ viz: true, reset: true }, '*')
+const on_track_change_vsvis = () => _broadcast({ viz: true, reset: true })
+const force_viz_change      = () => _broadcast({ viz: true, reset: true })
+
+const toggle_vsvis = () => {
+  _hidden = !_hidden
+  VIS_CONTAINER.style.opacity = _hidden ? '0' : (viz_raf ? '1' : '0')
 }
 
-const toggle_vsvis = (() => {
-  let hidden = false
-  return () => {
-    hidden = !hidden
-    VIZ_IFRAME.style.opacity = hidden ? '0' : (viz_raf ? '1' : '0')
-  }
-})()
-
-window.start_vsvis       = start_vsvis
-window.stop_vsvis        = stop_vsvis
+window.start_vsvis           = start_vsvis
+window.stop_vsvis            = stop_vsvis
 window.on_track_change_vsvis = on_track_change_vsvis
-window.toggle_vsvis      = toggle_vsvis
+window.force_viz_change      = force_viz_change
+window.toggle_vsvis          = toggle_vsvis
 
-let _sc = null, _iframe_ready = false, _si = 0
+let _sc = null
 const _BATCH = 100
+const _ready_frames = new Set()
 
-const _send_batches = () => {
-  if (!_sc || _si >= _sc.length) return
-  VIZ_IFRAME.contentWindow?.postMessage({ viz: true, shaders: _sc.slice(_si, _si + _BATCH) }, '*')
-  _si += _BATCH
-  if (_si < _sc.length) requestAnimationFrame(_send_batches)
+const _send_to_frame = (frame) => {
+  if (!_sc) return
+  let si = 0
+  const send = () => {
+    if (!VIZ_FRAMES.includes(frame)) return
+    frame.contentWindow?.postMessage({ viz: true, shaders: _sc.slice(si, si + _BATCH) }, '*')
+    si += _BATCH
+    if (si < _sc.length) requestAnimationFrame(send)
+  }
+  send()
 }
+
+const set_vis_count = (n) => {
+  n = Math.max(1, Math.min(6, n))
+  localStorage.setItem('vis_count', n)
+  while (VIZ_FRAMES.length < n) {
+    const f = document.createElement('iframe')
+    f.className = 'vis-layer'
+    f.src = BLOB_URL
+    VIS_CONTAINER.appendChild(f)
+    VIZ_FRAMES.push(f)
+  }
+  while (VIZ_FRAMES.length > n) {
+    const f = VIZ_FRAMES.pop()
+    _ready_frames.delete(f)
+    VIS_CONTAINER.removeChild(f)
+  }
+}
+window.set_vis_count = set_vis_count
 
 const _load_shaders = async () => {
   try {
     const r = await fetch('/api/shaders')
     if (!r.ok) { setTimeout(_load_shaders, 2000); return }
     _sc = await r.json()
-    if (_iframe_ready) _send_batches()
+    for (const f of _ready_frames) _send_to_frame(f)
   } catch(e) { setTimeout(_load_shaders, 2000) }
 }
 
 window.addEventListener('message', e => {
-  if (e.data?.viz_ready) { _iframe_ready = true; if (_sc) _send_batches() }
-  if (e.data?.viz_progress) {
+  const frame = VIZ_FRAMES.find(f => f.contentWindow === e.source)
+  if (!frame) return
+  if (e.data?.viz_ready) {
+    _ready_frames.add(frame)
+    if (_sc) _send_to_frame(frame)
+  }
+  if (e.data?.viz_progress && frame === VIZ_FRAMES[0]) {
     const el = document.getElementById('shader-progress')
     if (!el) return
     const { compiled, total } = e.data.viz_progress
@@ -360,4 +387,5 @@ window.addEventListener('message', e => {
   }
 })
 
+set_vis_count(parseInt(localStorage.getItem('vis_count') || '1'))
 _load_shaders()

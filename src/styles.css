@@ -35,6 +35,8 @@ body {
 .np-btn:hover { border-color: #df60ff; color: #f0c0ff; box-shadow: 0 0 8px rgba(200,60,255,0.4); }
 .np-btn.active { background: rgba(200,50,255,0.18); border-color: #e060f8; color: #f080ff;
   box-shadow: 0 0 12px rgba(220,60,255,0.5); }
+@keyframes spin-record { to { transform: rotate(360deg); } }
+#np-album-mode.active { animation: spin-record 2s linear infinite; }
 #np-stop:hover { border-color: #f86090; color: #ff80a8; box-shadow: 0 0 8px rgba(255,60,100,0.35); }
 #np-expand {
   background: none; border-color: transparent; box-shadow: none;
@@ -210,15 +212,19 @@ tr.banned-track:hover td { background: rgba(80,0,40,0.12); color: #5a3068 !impor
 
 /* ── visualizer ──────────────────────────────────────────────────────── */
 body { position: relative; z-index: 1; }
-#visualizer {
+#vis-container {
   position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-  z-index: 0; pointer-events: none; border: none;
+  z-index: 0; pointer-events: none;
   opacity: 0; transition: opacity 1.5s ease;
+}
+.vis-layer {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  border: none; mix-blend-mode: screen;
 }
 
 /* ── corner art ──────────────────────────────────────────────────────── */
 #corner-art {
-  position: fixed; bottom: 16px; left: 16px;
+  position: fixed; bottom: 16px; right: 16px;
   z-index: 2; pointer-events: none; display: none;
   border-radius: 4px; opacity: 0.82;
   transition: opacity 0.4s ease;
@@ -264,3 +270,34 @@ body { position: relative; z-index: 1; }
   scrollbar-color: #7020a0 #0e0020; scrollbar-width: thin;
 }
 .info-placeholder { color: #4a2870; font-style: italic; margin-bottom: 12px; }
+.info-setting-row {
+  display: flex; align-items: center;
+  padding: 6px 0; border-bottom: 1px solid #1e0840; gap: 6px;
+}
+.info-setting-label { color: #a080c8; font-size: 0.85em; }
+.info-setting-val { color: #40d8e8; font-size: 0.85em; min-width: 14px; text-align: right; }
+.info-setting-slider {
+  flex: 1; margin: 0 8px;
+  accent-color: #40d8e8; cursor: pointer;
+}
+.info-section-title {
+  font-size: 0.7em; text-transform: uppercase; letter-spacing: 1.5px;
+  color: #40d8e8; margin: 0 0 10px; font-weight: normal;
+}
+.keybind-table { width: 100%; border-collapse: collapse; }
+.keybind-table tr + tr td { border-top: 1px solid #1e0840; }
+.keybind-table td { padding: 6px 4px; }
+.kb-key {
+  color: #40d8e8; font-size: 0.85em; white-space: nowrap;
+  width: 60px; padding-right: 12px;
+  background: rgba(64,216,232,0.08); border-radius: 3px;
+  text-align: center;
+}
+.kb-desc { color: #a080c8; font-size: 0.85em; }
+.info-popup-footer {
+  text-align: center; padding: 10px 16px;
+  border-top: 1px solid #3a1060;
+  color: #4a2870; font-size: 0.72em; line-height: 1.6;
+}
+.info-popup-footer a { color: #7030a8; text-decoration: none; }
+.info-popup-footer a:hover { color: #c060f0; }
