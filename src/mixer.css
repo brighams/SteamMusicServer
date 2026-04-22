@@ -1,13 +1,14 @@
 .mixer-window {
   position: fixed;
-  width: 360px;
+  width: 360px; height: 280px;
+  min-width: 220px; min-height: 180px;
+  resize: both; overflow: hidden;
   z-index: 300;
   background: linear-gradient(160deg, #1a0035 0%, #2e0055 55%, #180030 100%);
   border: 1px solid #c060f0;
   box-shadow: 0 0 40px rgba(160,0,255,0.35), 0 8px 32px rgba(0,0,0,0.8);
   border-radius: 6px;
   display: flex; flex-direction: column;
-  overflow: hidden;
   user-select: none;
 }
 
@@ -32,12 +33,14 @@
 .mixer-close:hover { color: #c060f0; }
 
 .mixer-body {
+  flex: 1; min-height: 0;
   display: flex; flex-direction: column;
-  padding: 12px;
+  padding: 12px; overflow: hidden;
 }
 
 .mixer-class-row {
-  display: flex; gap: 6px; width: 100%; margin-bottom: 10px;
+  display: flex; gap: 6px; width: 100%;
+  margin-bottom: 10px; flex-shrink: 0;
 }
 
 .mixer-class-btn {
@@ -55,7 +58,9 @@
 
 /* ── main row: left (record+vol) | right (mix list) ─────────────────── */
 .mixer-main-row {
+  flex: 1; min-height: 0;
   display: flex; flex-direction: row; gap: 10px; align-items: flex-start;
+  overflow: hidden;
 }
 
 .mixer-left {
@@ -130,13 +135,15 @@
 
 /* ── mix list ─────────────────────────────────────────────────────────── */
 .mixer-mix-list {
-  flex: 1; display: flex; flex-direction: column; gap: 4px;
-  max-height: 160px; overflow-y: auto; padding-right: 2px;
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; gap: 4px;
+  overflow-y: auto; padding-right: 2px;
   scrollbar-color: #7020a0 #0e0020; scrollbar-width: thin;
+  align-content: flex-start;
 }
 
 .mixer-mix-item {
-  padding: 5px 10px;
+  padding: 5px 10px; flex-shrink: 0;
   background: rgba(200,50,255,0.08); border: 1px solid #6a28a0;
   border-radius: 4px; color: #c080e8; font-size: 0.72em;
   cursor: pointer;

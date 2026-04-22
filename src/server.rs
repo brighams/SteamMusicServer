@@ -144,8 +144,9 @@ const RANDOM_ALBUMS: &str = "
       AND COALESCE(ast.rating, 0) >= 0";
 
 const ALBUM_TRACKS: &str = "
-    SELECT steam_apps.*, steam_files.*,
-        '/cdn.media/id/' || steam_files.id || '/appid/' || steam_apps.id || '/' AS media_url
+    SELECT steam_files.id AS file_id, steam_files.file_name, steam_files.media_type,
+           steam_files.media_class, steam_files.title, steam_files.full_path,
+           steam_apps.id AS appid
     FROM steam_apps
     JOIN steam_files ON steam_apps.installdir = steam_files.title
         AND steam_files.title = :album_title

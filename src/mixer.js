@@ -93,6 +93,14 @@ const make_mixer = () => {
       console.log('[mixer] playing src:', audio.src)
       await audio.play()
       console.log('[mixer] playback started')
+
+      const new_count = Math.min(6, (window.get_vis_count?.() ?? 1) + 1)
+      window.set_vis_count?.(new_count)
+      const inp = document.getElementById('vis-count-input')
+      const val = document.getElementById('vis-count-val')
+      if (inp) { inp.value = new_count; if (val) val.textContent = new_count }
+      console.log('[mixer] vis layers now:', new_count)
+
       audio.addEventListener('ended', () => { source.disconnect(); audio.src = ''; console.log('[mixer] track ended, cleaned up') })
     } catch (e) {
       console.error('[mixer] inject failed:', e)
@@ -135,9 +143,12 @@ const make_mixer = () => {
       await fetch_track('/api/random/track')
     console.log('[mixer] resolved track:', track)
     if (!track) { console.warn('[mixer] no track found'); return }
-    const name = (track.file_name || track.title || String(track.file_id)).replace(/\.[^.]+$/, '')
-    console.log('[mixer] injecting:', name, 'id:', track.file_id)
-    inject(track.file_id)
+    const file_id = track.file_id
+    console.log('[mixer] file_id:', file_id)
+    if (!file_id) { console.warn('[mixer] track has no file_id', track); return }
+    const name = (track.file_name || track.title || String(file_id)).replace(/\.[^.]+$/, '')
+    console.log('[mixer] injecting:', name, 'id:', file_id)
+    inject(file_id)
     add_to_list(track.file_id, name)
   }
 

@@ -380,6 +380,7 @@ const set_vis_count = (n) => {
   }
 }
 window.set_vis_count = set_vis_count
+window.get_vis_count = () => VIZ_FRAMES.length
 
 const _load_shaders = async () => {
   try {
