@@ -1,0 +1,38 @@
+{
+  "_id": "MuxJWoHfp7M47hF8N",
+  "owner": {
+    "username": "anon"
+  },
+  "createdAt": {
+    "$date": 1521135388194
+  },
+  "modifiedAt": {
+    "$date": 1521135388194
+  },
+  "origId": null,
+  "name": "unnamed",
+  "notes": "",
+  "rank": 1.827717765598257,
+  "private": false,
+  "unlisted": false,
+  "username": "-anon-",
+  "avatarUrl": "",
+  "settings": {
+    "num": 1072,
+    "mode": "LINES",
+    "sound": "https://soundcloud.com/sonicunleashed/sonic-unleashed-endless-possibility",
+    "lineSize": "NATIVE",
+    "backgroundColor": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "shader": "\nvoid main() {\n  \n  gl_PointSize = 10.0;\n\tgl_Position = vec4(0.0,0.0,0.0,1.0);\n  v_color = vec4(1.0,0.0,0.0,1.0);\n}"
+  },
+  "screenshotURL": "data/images/images-xawswahw5l0n5l9g8-thumbnail.jpg",
+  "hasSound": true,
+  "views": 63,
+  "likes": 0,
+  "revisionId": "9J4jBpEvwQLrGcf45"
+}
