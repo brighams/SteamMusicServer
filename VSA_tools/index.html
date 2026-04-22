@@ -64,7 +64,7 @@
 
     #shader-frame {
       width: 100%;
-      aspect-ratio: 16 / 9;
+      height: calc(33vh - 28px);
       display: block;
       border: none;
     }
@@ -253,6 +253,8 @@
     }
 
     const make_card = (s) => {
+      if (!s.foreground && !s.background && !s.mouse) s.foreground = 1
+
       const card = document.createElement('div')
       card.className = `card${s.rating === -1 ? ' banned' : ''}`
 
@@ -314,8 +316,14 @@
       for (const tag of card.querySelectorAll('.tag')) {
         tag.addEventListener('click', async () => {
           const key = tag.dataset.tag
-          s[key] = s[key] ? null : 1
-          tag.className = `tag${s[key] ? ' on' : ''}`
+          const was_on = !!s[key]
+          s.foreground = null
+          s.background = null
+          s.mouse = null
+          s[key] = was_on ? null : 1
+          for (const t of card.querySelectorAll('.tag')) {
+            t.className = `tag${s[t.dataset.tag] ? ' on' : ''}`
+          }
           await set_rating(s)
         })
       }
