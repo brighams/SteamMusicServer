@@ -12,6 +12,7 @@ pub struct Config {
     pub logo_cache: Option<String>,
     pub scan_roots: Vec<String>,
     pub steam_dir: Option<String>,
+    pub shader_db: Option<String>,
 }
 
 impl Config {
@@ -46,6 +47,10 @@ impl Config {
                 .to_string_lossy()
                 .into_owned()
         })
+    }
+
+    pub fn shader_db_path(&self) -> String {
+        self.shader_db.clone().unwrap_or_else(|| "media/VSA_shaders.db".to_owned())
     }
 
     pub fn extensions(&self) -> Vec<String> {

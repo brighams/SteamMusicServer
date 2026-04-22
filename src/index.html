@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>MusicTower</title>
 <link rel="stylesheet" href="/styles.css">
-<script type="module" src="/visualizer.js"></script>
+<script type="module" src="/VSA_shadercore.js"></script>
 </head>
 <body>
 <audio id="audio-player"></audio>
@@ -14,6 +14,8 @@
 <div id="now-playing">
   <div id="np-top">
     <button class="np-btn" id="np-expand" onclick="toggleNpExpand()" title="Expand / Collapse">▸</button>
+    <button class="np-btn" id="np-stop"   onclick="stopPlayback()"    title="Stop">■</button>
+    <button class="np-btn" id="np-play"   onclick="togglePlayPause()" title="Play / Pause">▶</button>
     <button class="np-btn" id="np-skip"   onclick="skipTrack()"       title="Skip">⏭</button>
     <button class="np-btn" id="np-random" onclick="toggleRandom()"    title="Random mode">🎲</button>
     <div id="np-track">
@@ -21,20 +23,29 @@
       <span id="np-filename">—</span>
     </div>
     <span id="np-album"></span>
+    <div id="shader-progress" style="display:none;font-size:0.72em;color:#40d8e8;flex-shrink:0;padding:0 6px;"></div>
     <button class="np-btn" id="np-fullscreen" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
   </div>
   <div id="np-body" style="display:none">
     <div id="np-bar">
-      <span class="np-btn np-spacer" aria-hidden="true">▸</span>
-      <button class="np-btn" id="np-stop"   onclick="stopPlayback()"    title="Stop">■</button>
-      <button class="np-btn" id="np-play"   onclick="togglePlayPause()" title="Play / Pause">▶</button>
       <input  id="np-volume" type="range" min="0" max="1" step="0.01" value="1"
               oninput="AUDIO.volume=this.value" title="Volume">
     </div>
     <div id="np-tracks"></div>
     <div class="filter-row">
       <input id="search" type="text" placeholder="filter by name…" oninput="filterAll(this.value)">
+      <button class="info-btn" onclick="toggleInfoPopup()" title="Settings / Info">?</button>
     </div>
+  </div>
+</div>
+
+<div id="info-backdrop" onclick="toggleInfoPopup()"></div>
+<div id="info-popup">
+  <button class="info-popup-close" onclick="toggleInfoPopup()" title="Close">✕</button>
+  <h2 class="info-popup-title">Settings &amp; Info</h2>
+  <div class="info-popup-body">
+    <p class="info-placeholder">placeholder — settings go here</p>
+    <p class="info-placeholder">placeholder — info goes here</p>
   </div>
 </div>
 
@@ -194,8 +205,8 @@ let randomMode = false
 let ALL_ST_ALBUMS = []
 let ALL_DM_ALBUMS = []
 
-AUDIO.onplay  = () => { document.getElementById('np-play').textContent = '⏸'; start_viz() }
-AUDIO.onpause = () => { document.getElementById('np-play').textContent = '▶'; stop_viz() }
+AUDIO.onplay  = () => { document.getElementById('np-play').textContent = '⏸'; start_vsvis() }
+AUDIO.onpause = () => { document.getElementById('np-play').textContent = '▶'; stop_vsvis() }
 AUDIO.onended = () => {
   if (randomMode) {
     playRandom()
@@ -210,7 +221,7 @@ const playIdx = (idx) => {
   AUDIO.play()
   refreshNowPlaying()
   refreshHighlight()
-  on_track_change(TRACK_REG[player.albumId], _coalesce_img)
+  on_track_change_vsvis()
 }
 
 const playFrom = (albumId, fileId) => {
@@ -228,7 +239,7 @@ const playFrom = (albumId, fileId) => {
 const stopPlayback = () => {
   AUDIO.pause()
   AUDIO.src = ''
-  stop_viz()
+  stop_vsvis()
   refreshHighlight()
   _clear_img?.(document.getElementById('corner-art'))
 }
@@ -319,6 +330,13 @@ const toggleFullscreen = () => {
 document.addEventListener('fullscreenchange', () => {
   document.getElementById('np-fullscreen').classList.toggle('active', !!document.fullscreenElement)
 })
+
+// ── info popup ────────────────────────────────────────────────────────────────
+
+const toggleInfoPopup = () => {
+  const open = document.getElementById('info-popup').classList.toggle('open')
+  document.getElementById('info-backdrop').classList.toggle('open', open)
+}
 
 // ── section collapse ──────────────────────────────────────────────────────────
 

@@ -5,6 +5,7 @@ const LOGO_SVG: &str = include_str!("logo.svg");
 const STYLES_CSS: &str = include_str!("styles.css");
 const IMG_COALESCE_JS: &str = include_str!("ImgCoalesce.js");
 const VISUALIZER_JS: &str = include_str!("visualizer.js");
+const VERTEXSHADERVIS_JS: &str = include_str!("VSA_shadercore.js");
 
 use axum::{
     body::Body,
@@ -23,7 +24,7 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
 };
@@ -39,6 +40,8 @@ struct AppState {
     scanning: Arc<AtomicBool>,
     now_playing: Arc<Mutex<Option<Value>>>,
     media_type_order: Vec<String>,
+    shader_catalog: Arc<Mutex<Vec<u8>>>,
+    shader_count: Arc<AtomicUsize>,
 }
 
 // ── SQL ───────────────────────────────────────────────────────────────────────
@@ -379,6 +382,26 @@ async fn serve_img_coalesce_js() -> impl IntoResponse {
 
 async fn serve_visualizer_js() -> impl IntoResponse {
     ([(header::CONTENT_TYPE, "application/javascript")], VISUALIZER_JS)
+}
+
+async fn serve_vertexshadervis_js() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "application/javascript")], VERTEXSHADERVIS_JS)
+}
+
+async fn api_shaders(State(s): State<AppState>) -> Response {
+    let bytes = s.shader_catalog.lock().unwrap().clone();
+    if bytes.is_empty() {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error":"catalog not ready"}))).into_response();
+    }
+    Response::builder()
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(bytes))
+        .unwrap()
+}
+
+async fn api_shader_status(State(s): State<AppState>) -> Json<Value> {
+    let total = s.shader_count.load(Ordering::Relaxed);
+    Json(json!({ "ready": total > 0, "total": total }))
 }
 
 fn ensure_styles_css() {
@@ -919,6 +942,8 @@ pub async fn start(
     scanning: Arc<AtomicBool>,
     media_type_order: Vec<String>,
     steam_details_db: String,
+    shader_count: Arc<AtomicUsize>,
+    shader_catalog: Arc<Mutex<Vec<u8>>>,
 ) {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
@@ -935,6 +960,8 @@ pub async fn start(
         scanning,
         now_playing: Arc::new(Mutex::new(None)),
         media_type_order,
+        shader_catalog,
+        shader_count,
     };
 
     let cors = CorsLayer::new()
@@ -950,6 +977,7 @@ pub async fn start(
         .route("/styles.css", get(serve_styles_css))
         .route("/ImgCoalesce.js", get(serve_img_coalesce_js))
         .route("/visualizer.js", get(serve_visualizer_js))
+        .route("/VSA_shadercore.js", get(serve_vertexshadervis_js))
         .route("/api/summary", get(api_summary))
         .route("/api/albums", get(api_albums))
         .route("/api/album/tracks", get(api_album_tracks))
@@ -964,6 +992,8 @@ pub async fn start(
         .route("/api/random/game/music", get(api_random_track))
         .route("/api/rating", post(api_set_rating))
         .route("/api/image-cache", get(api_image_cache))
+        .route("/api/shaders", get(api_shaders))
+        .route("/api/shader-status", get(api_shader_status))
         .route(
             "/api/validate/cdn.media/id/{file_id}/appid/{appid}/{file_name}",
             get(cdn_validate),

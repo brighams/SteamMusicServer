@@ -53,6 +53,7 @@ h1 {
 
 <div class="msg">scanning games for music, effects, and voice tracks<span class="dots" id="d"></span></div>
 <div class="status" id="s">initializing…</div>
+<div class="status" id="ss" style="margin-top:6px">shaders: waiting…</div>
 <script>
 let n = 0
 setInterval(() => { document.getElementById('d').textContent = '.'.repeat((++n % 3) + 1) }, 500)
@@ -71,6 +72,20 @@ const poll = async () => {
   setTimeout(poll, 1000)
 }
 poll()
+
+const poll_shaders = async () => {
+  try {
+    const r = await fetch('/api/shader-status')
+    const j = await r.json()
+    if (j.ready) {
+      document.getElementById('ss').textContent = `shaders: ready (${j.total})`
+      return
+    }
+    document.getElementById('ss').textContent = `shaders: building… (${j.total || 0})`
+  } catch (_) {}
+  setTimeout(poll_shaders, 1500)
+}
+poll_shaders()
 </script>
 </body>
 </html>

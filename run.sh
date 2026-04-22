@@ -1,4 +1,5 @@
-# /usr/bin/bash
+#!/usr/bin/env bash
+set -e
 
-cargo build
-target/debug/music_server 
+bash build.sh
+target/debug/music_server

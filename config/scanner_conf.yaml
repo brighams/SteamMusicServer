@@ -25,4 +25,5 @@ media_type:
 #  - flv
 #  - smk
 #  - ivf
+shader_db: media/VSA_shaders.db
 scan_roots:

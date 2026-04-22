@@ -5,11 +5,12 @@ mod logos;
 mod scanner;
 mod server;
 mod setup;
+mod shader_catalog;
 mod steam;
 
 use std::env;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
 use std::time::Instant;
@@ -52,6 +53,7 @@ async fn main() {
     };
 
     let scanning = Arc::new(AtomicBool::new(true));
+    let shader_count = Arc::new(AtomicUsize::new(0));
 
     if env::var("STEAM_ID").is_err() || env::var("STEAM_API_KEY").is_err() {
         println!("SETUP: STEAM_ID or STEAM_API_KEY not set — starting first-time setup");
@@ -116,6 +118,17 @@ async fn main() {
 
     let extensions = cfg.extensions();
 
+    let shader_db = cfg.shader_db_path();
+    let shader_catalog = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+    let cat_for_task = shader_catalog.clone();
+    let sc_for_task = shader_count.clone();
+    let catalog_task = tokio::task::spawn_blocking(move || {
+        let (json, count) = shader_catalog::load_from_db(&shader_db);
+        *cat_for_task.lock().unwrap() = json;
+        sc_for_task.store(count, Ordering::Relaxed);
+        count
+    });
+
     let server_handle = if !serve_bind.is_empty() {
         let shared_db: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>> = database::make_placeholder_db();
         let db_for_server = shared_db.clone();
@@ -123,8 +136,10 @@ async fn main() {
         let bind = serve_bind.clone();
         let ext = extensions.clone();
         let sdb = steam_details_db.clone();
+        let sc = shader_count.clone();
+        let cat = shader_catalog.clone();
         let handle = tokio::spawn(async move {
-            server::start(&bind, db_for_server, scan_flag, ext, sdb).await;
+            server::start(&bind, db_for_server, scan_flag, ext, sdb, sc, cat).await;
         });
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         open_browser(&format!("https://{serve_bind}"));
@@ -169,6 +184,8 @@ async fn main() {
         "STEAM SCANNER: scan done in {:.3}s",
         start.elapsed().as_secs_f64()
     );
+
+    catalog_task.await.ok();
 
     if let Some((handle, shared_db)) = server_handle {
         match database::open_server_db(&cfg.db_file, &player_db, &steam_details_db) {
