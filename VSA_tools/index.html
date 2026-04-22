@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VSA Shaders</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d0d0d;
+      color: #ccc;
+      font-family: monospace;
+      padding: 16px;
+    }
+
+    h1 {
+      color: #fff;
+      font-size: 1rem;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    #count {
+      color: #555;
+      font-size: 0.75rem;
+      margin-bottom: 16px;
+    }
+
+    #viewer {
+      margin-bottom: 16px;
+      border: 1px solid #333;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    #viewer-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 8px;
+      background: #1a1a1a;
+      border-bottom: 1px solid #333;
+    }
+
+    #viewer-link {
+      color: #666;
+      font-size: 0.7rem;
+      text-decoration: none;
+    }
+    #viewer-link:hover { color: #aaa; }
+
+    #viewer-close {
+      background: none;
+      border: none;
+      color: #555;
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 2px 4px;
+    }
+    #viewer-close:hover { color: #ccc; }
+
+    #shader-frame {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      display: block;
+      border: none;
+    }
+
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 10px;
+    }
+
+    .card {
+      background: #161616;
+      border: 1px solid #2a2a2a;
+      border-radius: 3px;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .card.banned {
+      border-color: #6b0000;
+      background: #120808;
+    }
+
+    .card .thumb-link {
+      display: block;
+      cursor: pointer;
+    }
+
+    .card.active {
+      border-color: #555;
+    }
+
+    .card img.thumb {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+      display: block;
+    }
+
+    .card-body {
+      padding: 8px;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+    }
+
+    .btn-ban {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 2rem;
+      line-height: 1;
+      padding: 0;
+      opacity: 0.2;
+      transition: opacity 0.15s;
+    }
+    .btn-ban:hover { opacity: 0.6; }
+    .btn-ban.banned { opacity: 1; }
+
+    .stars {
+      display: flex;
+      gap: 1px;
+    }
+
+    .star {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 1.3rem;
+      line-height: 1;
+      color: #333;
+      padding: 0 2px;
+      transition: color 0.1s;
+    }
+    .star.lit { color: #e8a020; }
+    .star:hover { color: #e8a020; }
+
+    .card.banned .star { pointer-events: none; color: #2a1010; }
+
+    .tag {
+      background: none;
+      border: 1px solid #2a2a2a;
+      border-radius: 2px;
+      color: #444;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 0.6rem;
+      letter-spacing: 1px;
+      padding: 2px 5px;
+      transition: color 0.1s, border-color 0.1s;
+    }
+    .tag:hover { color: #888; border-color: #555; }
+    .tag.on { color: #5bc; border-color: #5bc; }
+
+    .info {
+      font-size: 0.65rem;
+      color: #555;
+    }
+
+    .shader-id {
+      color: #444;
+      margin-bottom: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .meta img.avatar {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .meta .username { color: #888; }
+    .meta .date { color: #444; margin-left: auto; }
+  </style>
+</head>
+<body>
+  <h1>VSA Shaders</h1>
+  <div id="count"></div>
+  <div id="viewer" hidden>
+    <div id="viewer-bar">
+      <a id="viewer-link" href="" target="_blank" rel="noopener">↗ open in tab</a>
+      <button id="viewer-close">✕</button>
+    </div>
+    <iframe id="shader-frame" allowfullscreen></iframe>
+  </div>
+  <div id="grid"></div>
+
+  <script>
+    const VSA = 'https://www.vertexshaderart.com'
+
+    const fmt_date = (ts) => ts ? new Date(ts).toISOString().slice(0, 10) : ''
+
+    const viewer = document.getElementById('viewer')
+    const shader_frame = document.getElementById('shader-frame')
+    const viewer_link = document.getElementById('viewer-link')
+    let active_card = null
+
+    const open_shader = (card, art_url) => {
+      if (active_card) active_card.classList.remove('active')
+      active_card = card
+      card.classList.add('active')
+      shader_frame.src = art_url
+      viewer_link.href = art_url
+      viewer.hidden = false
+      viewer.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+
+    document.getElementById('viewer-close').addEventListener('click', () => {
+      viewer.hidden = true
+      shader_frame.src = ''
+      if (active_card) active_card.classList.remove('active')
+      active_card = null
+    })
+
+    const set_rating = async (s) => {
+      await fetch('/api/rate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: s._id,
+          rating: s.rating,
+          foreground: s.foreground ?? null,
+          background: s.background ?? null,
+          mouse: s.mouse ?? null,
+        })
+      })
+    }
+
+    const update_stars = (card, rating) => {
+      for (const star of card.querySelectorAll('.star')) {
+        star.className = `star${rating >= parseInt(star.dataset.n) && rating > 0 ? ' lit' : ''}`
+      }
+    }
+
+    const make_card = (s) => {
+      const card = document.createElement('div')
+      card.className = `card${s.rating === -1 ? ' banned' : ''}`
+
+      const img_src = s.screenshot_url ? `${VSA}/${s.screenshot_url}` : ''
+      const art_url = `${VSA}/art/${s._id}`
+      const banned = s.rating === -1
+
+      card.innerHTML = `
+        <div class="thumb-link">
+          <img class="thumb" src="${img_src}" alt="" loading="lazy">
+        </div>
+        <div class="card-body">
+          <div class="controls">
+            <button class="btn-ban${banned ? ' banned' : ''}" title="${banned ? 'Unban' : 'Ban'}">💀</button>
+            <div class="stars">
+              <button class="star${s.rating >= 1 ? ' lit' : ''}" data-n="1">★</button>
+              <button class="star${s.rating >= 2 ? ' lit' : ''}" data-n="2">★</button>
+              <button class="star${s.rating >= 3 ? ' lit' : ''}" data-n="3">★</button>
+            </div>
+            <button class="tag${s.foreground ? ' on' : ''}" data-tag="foreground">FG</button>
+            <button class="tag${s.background ? ' on' : ''}" data-tag="background">BG</button>
+            <button class="tag${s.mouse ? ' on' : ''}" data-tag="mouse">MOUSE</button>
+          </div>
+          <div class="info">
+            <div class="shader-id">${s._id}</div>
+            <div class="meta">
+              ${s.owner_avatar_url ? `<img class="avatar" src="${s.owner_avatar_url}" alt="">` : ''}
+              <span class="username">${s.owner_username || s.username || ''}</span>
+              <span class="date">${fmt_date(s.created_at)}</span>
+            </div>
+          </div>
+        </div>
+      `
+
+      card.querySelector('.thumb-link').addEventListener('click', () => open_shader(card, art_url))
+
+      const btn_ban = card.querySelector('.btn-ban')
+      btn_ban.addEventListener('click', async () => {
+        const next = s.rating === -1 ? 0 : -1
+        s.rating = next
+        await set_rating(s)
+        card.className = `card${next === -1 ? ' banned' : ''}`
+        btn_ban.className = `btn-ban${next === -1 ? ' banned' : ''}`
+        btn_ban.title = next === -1 ? 'Unban' : 'Ban'
+        update_stars(card, next)
+      })
+
+      for (const star of card.querySelectorAll('.star')) {
+        star.addEventListener('click', async () => {
+          if (s.rating === -1) return
+          const n = parseInt(star.dataset.n)
+          const next = s.rating === n ? 0 : n
+          s.rating = next
+          await set_rating(s)
+          update_stars(card, next)
+        })
+      }
+
+      for (const tag of card.querySelectorAll('.tag')) {
+        tag.addEventListener('click', async () => {
+          const key = tag.dataset.tag
+          s[key] = s[key] ? null : 1
+          tag.className = `tag${s[key] ? ' on' : ''}`
+          await set_rating(s)
+        })
+      }
+
+      return card
+    }
+
+    const init = async () => {
+      const shaders = await (await fetch('/api/shaders')).json()
+      document.getElementById('count').textContent = `${shaders.length} shaders`
+      const grid = document.getElementById('grid')
+      for (const s of shaders) grid.appendChild(make_card(s))
+    }
+
+    init()
+  </script>
+</body>
+</html>

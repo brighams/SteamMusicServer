@@ -1,8 +1,23 @@
 import Database from 'better-sqlite3'
-import { readFileSync, readdirSync, statSync } from 'fs'
-import { join } from 'path'
+import { readFileSync, readdirSync, statSync, mkdirSync } from 'fs'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
 
-const db = new Database('media/VSA_shaders.db')
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+mkdirSync(join(ROOT, 'media'), { recursive: true })
+
+const db = new Database(join(ROOT, 'media/VSA_shaders.db'))
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS vsa_ratings (
+    _id TEXT PRIMARY KEY,
+    rating INTEGER NOT NULL DEFAULT 0,
+    foreground INTEGER,
+    background INTEGER,
+    mouse INTEGER
+  )
+`)
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS vsa_shaders (
@@ -115,10 +130,12 @@ const scan_directory = (dir) => {
   }
 }
 
-console.log('Creating database and table...')
-console.log('Scanning ./VSA_shaders for art.json files...')
+const SHADERS_DIR = join(ROOT, 'VSA_shaders')
 
-scan_directory('./VSA_shaders')
+console.log('Creating database and table...')
+console.log(`Scanning ${SHADERS_DIR} for art.json files...`)
+
+scan_directory(SHADERS_DIR)
 
 const count = db.prepare('SELECT COUNT(*) as count FROM vsa_shaders').get()
 console.log(`\nComplete! Inserted ${count.count} shaders into the database.`)
