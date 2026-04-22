@@ -129,6 +129,7 @@ const DEFS=[
   {src:S_WAVE,   num:7000,  mode:1},
 ]
 
+const IGNORE_SHADER_BG=true
 const SOUND_W=128,SOUND_H=64
 const sound_data=new Uint8Array(SOUND_W*SOUND_H*4)
 
@@ -175,7 +176,7 @@ const build_prog=def=>{
   gl.linkProgram(p)
   if(!gl.getProgramParameter(p,gl.LINK_STATUS)){gl.deleteProgram(p);return null}
   const U=n=>gl.getUniformLocation(p,n)
-  return{p,vid:gl.getAttribLocation(p,'vertexId'),num:def.num,mode:def.mode,
+  return{p,vid:gl.getAttribLocation(p,'vertexId'),num:def.num,mode:def.mode,bg:def.bg??null,
     Ut:U('time'),Uvc:U('vertexCount'),Ur:U('resolution'),Ubg:U('background'),
     Um:U('mouse'),Us:U('sound'),Ufs:U('floatSound'),Uvol:U('volume'),Utch:U('touch'),
     Usr:U('soundRes'),Ups:U('_dontUseDirectly_pointSize'),Ufa:U('u_fade')}
@@ -197,7 +198,8 @@ const draw=(po,fade)=>{
   gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,dummy_tex);gl.uniform1i(po.Utch,3)
   gl.uniform1f(po.Ut,viz_time);gl.uniform1f(po.Uvc,po.num)
   gl.uniform2f(po.Ur,canvas.width,canvas.height)
-  gl.uniform4f(po.Ubg,0,0,0,1)
+  const bg=IGNORE_SHADER_BG||!po.bg?[0,0,0,0]:po.bg
+  gl.uniform4f(po.Ubg,bg[0],bg[1],bg[2],bg[3])
   gl.uniform2f(po.Um,mouse[0],mouse[1])
   gl.uniform2f(po.Usr,SOUND_W,SOUND_H)
   gl.uniform1f(po.Ups,1);gl.uniform1f(po.Ufa,fade)
@@ -220,7 +222,7 @@ window.addEventListener('message',e=>{
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,SOUND_W,SOUND_H,0,gl.RGBA,gl.UNSIGNED_BYTE,sound_data)
   }
   if(d.reset){next=rnd(progs.length,cur);fade_start=ns();ts=ns();dur=rnd_dur();fade_dur=1}
-  if(d.shaders){compile_total+=d.shaders.length;for(const s of d.shaders)pending.push({src:s.src,num:Math.min(s.num||1000,MAX_VERTS),mode:MODE_MAP[s.mode]??0})}
+  if(d.shaders){compile_total+=d.shaders.length;for(const s of d.shaders)pending.push({src:s.src,num:Math.min(s.num||1000,MAX_VERTS),mode:MODE_MAP[s.mode]??0,bg:s.bg??null})}
 })
 
 const rnd=(n,x)=>{let r;do{r=Math.floor(Math.random()*n)}while(n>1&&r===x);return r}
