@@ -1,4 +1,5 @@
 db_file: media/starkeeper.db
+shader_db: media/VSA_shaders.db
 media_type:
   - mp3
   - ogg

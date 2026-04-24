@@ -9,6 +9,7 @@ pub struct Config {
     pub db_file: String,
     pub player_db: Option<String>,
     pub steam_details_db: Option<String>,
+    pub shader_db: Option<String>,
     pub logo_cache: Option<String>,
     pub scan_roots: Vec<String>,
     pub steam_dir: Option<String>,
@@ -21,6 +22,17 @@ impl Config {
                 .parent()
                 .unwrap_or(Path::new("."))
                 .join("player.db")
+                .to_string_lossy()
+                .into_owned()
+        })
+    }
+
+    pub fn shader_db_path(&self) -> String {
+        self.shader_db.clone().unwrap_or_else(|| {
+            Path::new(&self.db_file)
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join("VSA_shaders.db")
                 .to_string_lossy()
                 .into_owned()
         })

@@ -22,14 +22,16 @@ h1 {
 .logo-wrap img {
   display: block; height: 320px; width: auto;
 }
+
 .ring {
-  width: 80px; height: 80px; border-radius: 50%;
+  width: 800px; height: 800px; border-radius: 50%;
   border: 2px solid #6030a0;
   position: absolute;
-  left: calc(33.33% - 40px);
+  left: calc(50% - 400px);
   top: 50%; transform: translateY(-50%);
-  animation: pulse 2s ease-in-out infinite;
+  animation: pulse 0.66s ease-in-out infinite;
 }
+
 @keyframes pulse {
   0%   { box-shadow: 0 0 0 0 rgba(160,0,255,0.45); border-color: #6030a0; }
   50%  { box-shadow: 0 0 0 26px rgba(160,0,255,0);  border-color: #c060f0; }
@@ -53,6 +55,7 @@ h1 {
 
 <div class="msg">scanning games for music, effects, and voice tracks<span class="dots" id="d"></span></div>
 <div class="status" id="s">initializing…</div>
+<div class="status" id="ss" style="margin-top:6px">shaders: waiting…</div>
 <script>
 let n = 0
 setInterval(() => { document.getElementById('d').textContent = '.'.repeat((++n % 3) + 1) }, 500)
@@ -71,6 +74,20 @@ const poll = async () => {
   setTimeout(poll, 1000)
 }
 poll()
+
+const poll_shaders = async () => {
+  try {
+    const r = await fetch('/api/shader-status')
+    const j = await r.json()
+    if (j.ready) {
+      document.getElementById('ss').textContent = `shaders: ready (${j.total})`
+      return
+    }
+    document.getElementById('ss').textContent = `shaders: building… (${j.total || 0})`
+  } catch (_) {}
+  setTimeout(poll_shaders, 1500)
+}
+poll_shaders()
 </script>
 </body>
 </html>

@@ -4,6 +4,10 @@ const COLORS_JS: &str = include_str!("../../src/colors.js");
 const LOGO_SVG: &str = include_str!("../../src/logo.svg");
 const STYLES_CSS: &str = include_str!("../../src/styles.css");
 const IMG_COALESCE_JS: &str = include_str!("../../src/ImgCoalesce.js");
+const MIXER_CSS: &str = include_str!("../../src/mixer.css");
+const MIXER_JS: &str = include_str!("../../src/mixer.js");
+const VERTEXSHADERVIS_JS: &str = include_str!("../../src/VSA_shadercore.js");
+const MIXER_PNG: &[u8] = include_bytes!("../../assets/mixer.png");
 
 use axum::{
     body::Body,
@@ -21,7 +25,7 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
 };
@@ -37,6 +41,8 @@ struct AppState {
     scanning: Arc<AtomicBool>,
     now_playing: Arc<Mutex<Option<Value>>>,
     media_type_order: Vec<String>,
+    shader_catalog: Arc<Mutex<Vec<u8>>>,
+    shader_total: Arc<AtomicUsize>,
 }
 
 // ── SQL ───────────────────────────────────────────────────────────────────────
@@ -132,6 +138,7 @@ const RANDOM_ALBUMS: &str = "
     FROM steam_files sf
     LEFT JOIN pdb.album_stats ast ON ast.album_key = sf.album_key
     WHERE (:type IS NULL OR UPPER(sf.media_type) = UPPER(:type))
+      AND (:class IS NULL OR LOWER(sf.media_class) = LOWER(:class))
       AND COALESCE(ast.rating, 0) >= 0";
 
 const ALBUM_TRACKS: &str = "
@@ -198,8 +205,8 @@ fn run_query_one(conn: &Connection, sql: &str, params: impl rusqlite::Params) ->
 
 // ── random track helpers ──────────────────────────────────────────────────────
 
-fn pick_random_track(conn: &Connection, media_type: Option<&str>) -> Option<Value> {
-    let albums = run_query(conn, RANDOM_ALBUMS, rusqlite::named_params! { ":type": media_type });
+fn pick_random_track(conn: &Connection, media_type: Option<&str>, media_class: Option<&str>) -> Option<Value> {
+    let albums = run_query(conn, RANDOM_ALBUMS, rusqlite::named_params! { ":type": media_type, ":class": media_class });
     if albums.is_empty() {
         return None;
     }
@@ -375,6 +382,26 @@ async fn serve_img_coalesce_js() -> impl IntoResponse {
     ([(header::CONTENT_TYPE, "application/javascript")], IMG_COALESCE_JS)
 }
 
+async fn serve_mixer_css() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "text/css; charset=utf-8")], MIXER_CSS)
+}
+
+async fn serve_mixer_js() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "application/javascript")], MIXER_JS)
+}
+
+async fn serve_vertexshadervis_js() -> impl IntoResponse {
+    ([(header::CONTENT_TYPE, "application/javascript")], VERTEXSHADERVIS_JS)
+}
+
+async fn serve_mixer_png() -> impl IntoResponse {
+    Response::builder()
+        .header(header::CONTENT_TYPE, "image/png")
+        .header(header::CACHE_CONTROL, "public, max-age=604800")
+        .body(Body::from(MIXER_PNG))
+        .unwrap()
+}
+
 fn ensure_styles_css() {
     let path = std::path::Path::new("media/styles.css");
     if !path.exists() {
@@ -545,12 +572,15 @@ struct RandomQuery {
     vlc: Option<String>,
     #[serde(rename = "type")]
     media_type: Option<String>,
+    class: Option<String>,
 }
 
 async fn api_random_track(State(s): State<AppState>, Query(q): Query<RandomQuery>) -> Response {
     let n = q.count.unwrap_or(1).max(1).min(100) as usize;
     let db = s.db.lock().unwrap();
-    let tracks: Vec<Value> = (0..n).filter_map(|_| pick_random_track(&db, q.media_type.as_deref())).collect();
+    let tracks: Vec<Value> = (0..n)
+        .filter_map(|_| pick_random_track(&db, q.media_type.as_deref(), q.class.as_deref()))
+        .collect();
     if q.vlc.is_some() {
         return (
             [(header::CONTENT_TYPE, "application/xspf+xml")],
@@ -642,6 +672,45 @@ async fn api_image_cache(Query(q): Query<ImageCacheQuery>) -> Response {
         Ok(Err(status)) => status.into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
+}
+
+// ── shader catalog ────────────────────────────────────────────────────────────
+
+async fn api_shaders(State(s): State<AppState>) -> Response {
+    let data = s.shader_catalog.lock().unwrap().clone();
+    Response::builder()
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(data))
+        .unwrap()
+}
+
+async fn api_shader_status(State(s): State<AppState>) -> Json<Value> {
+    let total = s.shader_total.load(Ordering::Relaxed);
+    let ready = total > 0 && !s.scanning.load(Ordering::Relaxed);
+    Json(json!({ "ready": ready, "total": total }))
+}
+
+// ── class titles (mixer search) ───────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ClassTitlesQuery {
+    class: Option<String>,
+    q: Option<String>,
+}
+
+async fn api_class_titles(State(s): State<AppState>, Query(q): Query<ClassTitlesQuery>) -> Json<Value> {
+    let db = s.db.lock().unwrap();
+    let sql = "SELECT DISTINCT sf.title, sf.title AS install_key
+               FROM steam_files sf
+               WHERE (:class IS NULL OR LOWER(sf.media_class) = LOWER(:class))
+                 AND (:q IS NULL OR sf.title LIKE '%' || :q || '%')
+               ORDER BY sf.title
+               LIMIT 200";
+    Json(Value::Array(run_query(
+        &db,
+        sql,
+        rusqlite::named_params! { ":class": q.class, ":q": q.q },
+    )))
 }
 
 // ── CDN ───────────────────────────────────────────────────────────────────────
@@ -875,6 +944,8 @@ pub async fn start(
     scanning: Arc<AtomicBool>,
     media_type_order: Vec<String>,
     steam_details_db: String,
+    shader_catalog: Arc<Mutex<Vec<u8>>>,
+    shader_total: Arc<AtomicUsize>,
 ) {
     ensure_styles_css();
 
@@ -883,6 +954,8 @@ pub async fn start(
         scanning,
         now_playing: Arc::new(Mutex::new(None)),
         media_type_order,
+        shader_catalog,
+        shader_total,
     };
 
     let cors = CorsLayer::new()
@@ -897,6 +970,10 @@ pub async fn start(
         .route("/logo.svg", get(serve_logo_svg))
         .route("/styles.css", get(serve_styles_css))
         .route("/ImgCoalesce.js", get(serve_img_coalesce_js))
+        .route("/mixer.css", get(serve_mixer_css))
+        .route("/mixer.js", get(serve_mixer_js))
+        .route("/VSA_shadercore.js", get(serve_vertexshadervis_js))
+        .route("/assets/mixer.png", get(serve_mixer_png))
         .route("/api/summary", get(api_summary))
         .route("/api/albums", get(api_albums))
         .route("/api/album/tracks", get(api_album_tracks))
@@ -911,6 +988,9 @@ pub async fn start(
         .route("/api/random/game/music", get(api_random_track))
         .route("/api/rating", post(api_set_rating))
         .route("/api/image-cache", get(api_image_cache))
+        .route("/api/shaders", get(api_shaders))
+        .route("/api/shader-status", get(api_shader_status))
+        .route("/api/class/titles", get(api_class_titles))
         .route(
             "/api/validate/cdn.media/id/{file_id}/appid/{appid}/{file_name}",
             get(cdn_validate),

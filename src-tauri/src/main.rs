@@ -7,12 +7,13 @@ mod logos;
 mod scanner;
 mod server;
 mod setup;
+mod shader_catalog;
 mod steam;
 
 use std::env;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc, Mutex,
 };
 use std::time::Instant;
 use tracing::{error, info};
@@ -64,6 +65,9 @@ async fn init_and_serve() {
     let scanning = Arc::new(AtomicBool::new(true));
     let shared_db = database::make_placeholder_db();
 
+    let shader_catalog: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(b"[]".to_vec()));
+    let shader_total = Arc::new(AtomicUsize::new(0));
+
     let db_for_server = shared_db.clone();
     let scan_flag = scanning.clone();
     let sdb = steam_details_db.clone();
@@ -75,6 +79,8 @@ async fn init_and_serve() {
         scan_flag,
         extensions.clone(),
         sdb,
+        shader_catalog.clone(),
+        shader_total.clone(),
     ));
 
     let mut conn = match database::backup_and_init(&cfg.db_file) {
@@ -168,5 +174,10 @@ async fn init_and_serve() {
         Ok(conn) => { *shared_db.lock().unwrap() = conn; }
         Err(e) => error!("DB: failed to open server db: {e}"),
     }
+
+    let (catalog_json, count) = shader_catalog::load_from_db(&cfg.shader_db_path());
+    *shader_catalog.lock().unwrap() = catalog_json;
+    shader_total.store(count, Ordering::Relaxed);
+
     scanning.store(false, Ordering::Relaxed);
 }
