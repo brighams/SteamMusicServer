@@ -14,16 +14,6 @@ When you run this from the console you will see a message to look for the browse
 
 ![screenshot: onboarding — Steam OpenID login page](docs/screenshots/onboarding.png)
 
-### TEST SSL CERT WARNING
-This server binds to local host IP address and runs only locally on your machine so we can't get a proper server certificate for this (yet, there are ways, bit it is a PITA!)
-
-To use the built in web client you will need to accept the test certificate.
-
-1. Click Show Advanced
-2. Click proceed to... 
-
-![screenshot: you will be warned about using the test certificate. It's ok.](docs/screenshots/safety.png)
-
 ---
 
 ### Web Player (LOCALHOST)
