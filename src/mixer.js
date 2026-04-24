@@ -2,6 +2,53 @@ const MEDIA_CLASSES    = ['music', 'effect', 'voice', 'audiobook']
 const STORAGE_PREFIX   = 'mixer.'
 let _count = 0
 
+const WAVE_DRAW_PTS = 80
+const WAVE_SMOOTH_A = 0.15
+
+const make_wave_draw = (analyser, canvas, ctx2d) => {
+  const wave_data  = new Uint8Array(analyser.frequencyBinCount)
+  const smooth_buf = new Float32Array(WAVE_DRAW_PTS).fill(128)
+  let raf_id = null
+
+  const draw = () => {
+    raf_id = requestAnimationFrame(draw)
+    analyser.getByteTimeDomainData(wave_data)
+    const stride = Math.floor(wave_data.length / WAVE_DRAW_PTS)
+    for (let i = 0; i < WAVE_DRAW_PTS; i++) {
+      let s = 0
+      for (let j = 0; j < stride; j++) s += wave_data[i * stride + j]
+      smooth_buf[i] = smooth_buf[i] * (1 - WAVE_SMOOTH_A) + (s / stride) * WAVE_SMOOTH_A
+    }
+    ctx2d.clearRect(0, 0, canvas.width, canvas.height)
+    ctx2d.strokeStyle = '#ff0088'
+    ctx2d.lineWidth = 1.5
+    ctx2d.beginPath()
+    for (let i = 0; i < WAVE_DRAW_PTS; i++) {
+      const x = (i / (WAVE_DRAW_PTS - 1)) * canvas.width
+      const y = (smooth_buf[i] / 255) * canvas.height
+      if (i === 0) ctx2d.moveTo(x, y)
+      else         ctx2d.lineTo(x, y)
+    }
+    ctx2d.stroke()
+  }
+
+  const start = () => {
+    canvas.width  = canvas.offsetWidth  || 200
+    canvas.height = canvas.offsetHeight || 28
+    if (!raf_id) draw()
+  }
+
+  const stop = () => {
+    if (raf_id) { cancelAnimationFrame(raf_id); raf_id = null }
+    smooth_buf.fill(128)
+    ctx2d.clearRect(0, 0, canvas.width, canvas.height)
+  }
+
+  return { start, stop }
+}
+
+window.make_wave_draw = make_wave_draw
+
 const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
 
 const make_mixer = (config = null) => {
@@ -189,7 +236,7 @@ const make_mixer = (config = null) => {
     try {
       const source        = ctx.createMediaElementSource(audio)
       const item_analyser = ctx.createAnalyser()
-      item_analyser.fftSize = 128
+      item_analyser.fftSize = 4096
       item_analyser.smoothingTimeConstant = 0
       const item_gain = ctx.createGain()
       item_gain.gain.value = 1.0
@@ -227,32 +274,9 @@ const make_mixer = (config = null) => {
     const remove_btn = item.querySelector('.mixin-remove')
     const play_btn   = item.querySelector('.mixin-play')
     const vol_slider = item.querySelector('.mixin-vol')
-    const canvas     = item.querySelector('.mixin-canvas')
-    const ctx2d      = canvas.getContext('2d')
-    const wave_data  = new Uint8Array(item_analyser.frequencyBinCount)
-    let raf_id = null
-
-    const draw_wave = () => {
-      raf_id = requestAnimationFrame(draw_wave)
-      item_analyser.getByteTimeDomainData(wave_data)
-      ctx2d.clearRect(0, 0, canvas.width, canvas.height)
-      ctx2d.strokeStyle = '#ff0088'
-      ctx2d.lineWidth = 1.5
-      ctx2d.beginPath()
-      const step = canvas.width / wave_data.length
-      for (let i = 0; i < wave_data.length; i++) {
-        const y = (wave_data[i] / 255) * canvas.height
-        if (i === 0) ctx2d.moveTo(0, y)
-        else         ctx2d.lineTo(i * step, y)
-      }
-      ctx2d.stroke()
-    }
-
-    const start_wave = () => { if (!raf_id) draw_wave() }
-    const stop_wave  = () => {
-      if (raf_id) { cancelAnimationFrame(raf_id); raf_id = null }
-      ctx2d.clearRect(0, 0, canvas.width, canvas.height)
-    }
+    const canvas = item.querySelector('.mixin-canvas')
+    const ctx2d  = canvas.getContext('2d')
+    const { start: start_wave, stop: stop_wave } = make_wave_draw(item_analyser, canvas, ctx2d)
 
     remove_btn.addEventListener('click', e => {
       e.stopPropagation()
@@ -279,12 +303,6 @@ const make_mixer = (config = null) => {
     })
 
     mixin_list.prepend(item)
-
-    requestAnimationFrame(() => {
-      canvas.width  = canvas.offsetWidth  || 200
-      canvas.height = canvas.offsetHeight || 28
-      if (!audio.paused) start_wave()
-    })
   }
 
   // ── fetch a random track ─────────────────────────────────────────────────────
@@ -386,7 +404,7 @@ const make_mixer = (config = null) => {
   }
 
   header.addEventListener('mousedown', e => {
-    if (e.target.closest('button, input, .mixer-title')) return
+    if (e.target.closest('button, input')) return
     drag = { ox: e.clientX - el.offsetLeft, oy: e.clientY - el.offsetTop }
     document.addEventListener('mousemove', on_move)
     document.addEventListener('mouseup',   on_drag_up)

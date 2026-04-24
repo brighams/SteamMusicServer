@@ -14,7 +14,7 @@
 <div id="vis-container"></div>
 <img id="corner-art" alt="">
 <span id="vis-count-display"></span>
-<div id="shader-author"></div>
+<a id="shader-credit" href="" target="_blank" rel="noopener noreferrer" style="display:none"></a>
 
 <div id="now-playing">
   <div id="np-top">
@@ -23,14 +23,19 @@
     <button class="np-btn" id="np-play"   onclick="togglePlayPause()" title="Play / Pause">▶</button>
     <button class="np-btn" id="np-skip"   onclick="skipTrack()"       title="Skip">⏭</button>
     <button class="np-btn" id="np-random" onclick="toggleRandom()"    title="Random mode">🎲</button>
-    <button class="np-btn active" id="np-screensaver" onclick="toggleScreensaver()" title="Toggle screensaver">◉</button>
     <button class="np-btn" id="np-album-mode" onclick="toggleAlbumMode()" title="Album mode">💿</button>
-    <div id="np-track">
-      <span id="np-label">Now Playing</span>
-      <span id="np-filename">—</span>
+    <button class="np-btn active" id="np-screensaver" onclick="toggleScreensaver()" title="Toggle screensaver">✨</button>
+    <div id="np-track-area">
+      <div id="np-track">
+        <div id="np-label-wrap">
+          <canvas id="np-wave"></canvas>
+          <span id="np-label">Now Playing</span>
+        </div>
+        <span id="np-filename">—</span>
+      </div>
+      <span id="np-album"></span>
+      <div id="shader-progress" style="display:none;font-size:0.72em;color:#40d8e8;flex-shrink:0;padding:0 6px;position:relative;z-index:1"></div>
     </div>
-    <span id="np-album"></span>
-    <div id="shader-progress" style="display:none;font-size:0.72em;color:#40d8e8;flex-shrink:0;padding:0 6px;"></div>
     <button class="np-btn" id="np-fullscreen" onclick="toggleFullscreen()" title="Fullscreen">⛶</button>
   </div>
   <div id="np-body" style="display:none">
@@ -53,9 +58,10 @@
   <div class="info-popup-body">
     <h3 class="info-section-title">Settings</h3>
     <div class="info-setting-row">
-      <label class="info-setting-label" for="vis-count-input">Visualizer layers</label>
-      <input class="info-setting-slider" id="vis-count-input" type="range" min="1" max="6" step="1" value="1">
-      <span id="vis-count-val" class="info-setting-val">1</span>
+<!--      <label class="info-setting-label" for="vis-count-input">Visualizer layers</label>-->
+<!--      <input class="info-setting-slider" id="vis-count-input" type="range" min="1" max="6" step="1" value="1">-->
+<!--      <span id="vis-count-val" class="info-setting-val">1</span>-->
+      PLACEHOLDER
     </div>
     <h3 class="info-section-title" style="margin-top:18px">Keyboard Shortcuts</h3>
     <table class="keybind-table">
@@ -236,10 +242,11 @@ let albumMode = false
 let ALL_ST_ALBUMS = []
 let ALL_DM_ALBUMS = []
 
-AUDIO.onplay  = () => { document.getElementById('np-play').textContent = '⏸'; start_vsvis() }
+AUDIO.onplay  = () => { document.getElementById('np-play').textContent = '⏸'; start_vsvis(); np_start_wave() }
 AUDIO.onpause = () => {
   document.getElementById('np-play').textContent = '▶'
   stop_vsvis()
+  np_stop_wave()
   _clear_img?.(document.getElementById('corner-art'))
 }
 AUDIO.onended = () => {
@@ -685,6 +692,21 @@ function filterAll(q) {
     div.style.display = !term || div.dataset.name.includes(term) ? '' : 'none'
   }
 }
+
+// ── now-playing waveform ─────────────────────────────────────────────────────
+
+const np_canvas  = document.getElementById('np-wave')
+const np_ctx2d   = np_canvas?.getContext('2d')
+let np_wave_ctrl = null
+
+const np_start_wave = () => {
+  const an = window.get_np_analyser?.()
+  if (!an || !np_canvas || !np_ctx2d) return
+  if (!np_wave_ctrl) np_wave_ctrl = window.make_wave_draw(an, np_canvas, np_ctx2d)
+  np_wave_ctrl.start()
+}
+
+const np_stop_wave = () => np_wave_ctrl?.stop()
 
 load().then(() => {
   toggleRandom()

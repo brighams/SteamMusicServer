@@ -10,7 +10,7 @@ pub fn load_from_db(db_path: &str) -> (Vec<u8>, usize) {
         }
     };
 
-    let sql = "SELECT _id, name, settings_num, settings_mode, settings_shader, settings_background_color, owner_username \
+    let sql = "SELECT _id, name, settings_num, settings_mode, settings_shader, settings_background_color, owner_username, owner_avatar_url \
                FROM vsa_shaders \
                WHERE settings_shader IS NOT NULL \
                AND instr(settings_shader, 'void main') > 0";
@@ -34,12 +34,13 @@ pub fn load_from_db(db_path: &str) -> (Vec<u8>, usize) {
             row.get::<_, String>(4)?,
             row.get::<_, Option<String>>(5)?,
             row.get::<_, Option<String>>(6)?,
+            row.get::<_, Option<String>>(7)?,
         ))
     });
 
     if let Ok(rows) = rows {
         for row in rows.flatten() {
-            let (id, name, num, mode, src, bg_str, author) = row;
+            let (id, name, num, mode, src, bg_str, author, avatar) = row;
             let bg: Value = bg_str
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or(Value::Null);
@@ -51,6 +52,7 @@ pub fn load_from_db(db_path: &str) -> (Vec<u8>, usize) {
                 "src": src,
                 "bg": bg,
                 "author": author,
+                "avatar": avatar,
             }));
         }
     }

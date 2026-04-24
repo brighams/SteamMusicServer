@@ -25,6 +25,7 @@ body {
   color: #6030a0; font-size: 0.8em; flex-shrink: 0; max-width: 220px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   text-align: right; margin-left: auto; padding-left: 12px;
+  position: relative; z-index: 1;
 }
 .np-btn {
   background: rgba(180,0,255,0.08); border: 1px solid #6a28a0; color: #b080d8;
@@ -47,9 +48,20 @@ body {
 .np-spacer { visibility: hidden; pointer-events: none; }
 #np-volume { width: 90px; cursor: pointer; flex-shrink: 0; accent-color: #c060f0; vertical-align: middle; opacity: 0.85; }
 #np-volume:hover { opacity: 1; }
+#np-track-area {
+  flex: 1; min-width: 0;
+  position: relative;
+  display: flex; align-items: center; gap: 6px;
+}
 #np-track { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; padding-left: 8px; border-left: 1px solid #4a1070; }
+#np-label-wrap { position: relative; overflow: hidden; flex-shrink: 0; display: flex; align-items: center; }
+#np-wave {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none; z-index: 0; opacity: 0.45;
+}
 #np-label { color: #c060f0; font-size: 0.72em; letter-spacing: 2px; text-transform: uppercase;
-  flex-shrink: 0; text-shadow: 0 0 8px rgba(180,60,255,0.7); }
+  flex-shrink: 0; text-shadow: 0 0 8px rgba(180,60,255,0.7); position: relative; z-index: 1; }
 #np-filename { color: #f0d8ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95em; }
 .np-queue-layout { display: flex; gap: 10px; align-items: flex-start; }
 .np-queue-list { flex: 1; min-width: 0; max-height: 200px; overflow-y: auto;
@@ -234,11 +246,26 @@ body { position: relative; z-index: 1; }
   line-height: 1;
   text-shadow: 0 0 10px rgba(255,0,136,0.5);
 }
-#shader-author {
-  position: fixed; bottom: 48px; left: 20px;
-  z-index: 5; pointer-events: none;
-  font-size: 0.72em; color: rgba(192,96,240,0.75);
-  font-family: monospace; letter-spacing: 1px;
+#shader-credit {
+  position: fixed; bottom: 20px; right: 20px;
+  z-index: 5;
+  display: flex; align-items: center; gap: 8px;
+  text-decoration: none;
+  background: rgba(14,8,32,0.72);
+  border: 1px solid rgba(192,96,240,0.3);
+  border-radius: 20px;
+  padding: 4px 10px 4px 4px;
+  transition: border-color 0.15s;
+}
+#shader-credit:hover { border-color: rgba(192,96,240,0.7); }
+#shader-credit img {
+  width: 28px; height: 28px; border-radius: 50%;
+  object-fit: cover; flex-shrink: 0;
+}
+#shader-credit span {
+  font-size: 0.72em; color: rgba(192,96,240,0.85);
+  font-family: monospace; letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 
 /* ── corner art ──────────────────────────────────────────────────────── */

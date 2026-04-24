@@ -1,3 +1,5 @@
+const OG_VIZ_TEST = false
+
 const VSART_HTML = `<!DOCTYPE html><html><head><style>
 *{margin:0;padding:0}body{background:#000;overflow:hidden}canvas{display:block;width:100vw;height:100vh}
 </style></head><body><canvas id="c"></canvas><script>
@@ -176,7 +178,7 @@ const build_prog=def=>{
   gl.linkProgram(p)
   if(!gl.getProgramParameter(p,gl.LINK_STATUS)){gl.deleteProgram(p);return null}
   const U=n=>gl.getUniformLocation(p,n)
-  return{p,vid:gl.getAttribLocation(p,'vertexId'),num:def.num,mode:def.mode,bg:def.bg??null,author:def.author??null,
+  return{p,vid:gl.getAttribLocation(p,'vertexId'),num:def.num,mode:def.mode,bg:def.bg??null,author:def.author??null,id:def.id??null,avatar:def.avatar??null,
     Ut:U('time'),Uvc:U('vertexCount'),Ur:U('resolution'),Ubg:U('background'),
     Um:U('mouse'),Us:U('sound'),Ufs:U('floatSound'),Uvol:U('volume'),Utch:U('touch'),
     Usr:U('soundRes'),Ups:U('_dontUseDirectly_pointSize'),Ufa:U('u_fade')}
@@ -222,7 +224,7 @@ window.addEventListener('message',e=>{
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,SOUND_W,SOUND_H,0,gl.RGBA,gl.UNSIGNED_BYTE,sound_data)
   }
   if(d.reset){next=rnd(progs.length,cur);fade_start=ns();ts=ns();dur=rnd_dur();fade_dur=1}
-  if(d.shaders){compile_total+=d.shaders.length;for(const s of d.shaders)pending.push({src:s.src,num:Math.min(s.num||1000,MAX_VERTS),mode:MODE_MAP[s.mode]??0,bg:s.bg??null,author:s.author||null})}
+  if(d.shaders){compile_total+=d.shaders.length;for(const s of d.shaders)pending.push({src:s.src,num:Math.min(s.num||1000,MAX_VERTS),mode:MODE_MAP[s.mode]??0,bg:s.bg??null,author:s.author||null,id:s.id||null,avatar:s.avatar||null})}
 })
 
 const rnd=(n,x)=>{let r;do{r=Math.floor(Math.random()*n)}while(n>1&&r===x);return r}
@@ -260,7 +262,7 @@ const render=()=>{
     if(!safe_draw(cur,1-ft))return
     if(next===-1)return
     if(!safe_draw(next,ft))return
-    if(ft>=1){cur=next;next=-1;ts=t;dur=rnd_dur();fade_dur=FADE;window.parent.postMessage({viz_shader:{author:progs[cur]?.author??null}},'*')}
+    if(ft>=1){cur=next;next=-1;ts=t;dur=rnd_dur();fade_dur=FADE;const _p=progs[cur];window.parent.postMessage({viz_shader:{author:_p?.author??null,id:_p?.id??null,avatar:_p?.avatar??null}},'*')}
   }else{
     safe_draw(cur,1)
   }
@@ -270,14 +272,17 @@ window.parent.postMessage({viz_ready:true},'*')
 <\/script></body></html>`
 
 const BLOB_URL = URL.createObjectURL(new Blob([VSART_HTML], { type: 'text/html' }))
+const OG_BLOB_URL = null
 const VIS_CONTAINER = document.getElementById('vis-container')
 let VIZ_FRAMES = []
 
 const AUDIO = document.getElementById('audio-player')
 const FREQ_BINS = 128
 const freq_data = new Uint8Array(FREQ_BINS)
+const wave_data = new Uint8Array(256)
 let audio_ctx   = null
 let analyser    = null
+let np_analyser = null
 let viz_raf     = null
 let viz_start   = null
 let beat        = 0
@@ -294,6 +299,9 @@ const ensure_audio_ctx = () => {
   analyser.smoothingTimeConstant = 0.82
   source.connect(analyser)
   analyser.connect(audio_ctx.destination)
+  np_analyser = audio_ctx.createAnalyser()
+  np_analyser.fftSize = 4096
+  source.connect(np_analyser)
 }
 
 const freq_avg = (lo, hi) => {
@@ -315,15 +323,19 @@ const start_vsvis = () => {
   const tick = () => {
     viz_raf = requestAnimationFrame(tick)
     analyser.getByteFrequencyData(freq_data)
+    analyser.getByteTimeDomainData(wave_data)
     const t = (performance.now() - viz_start) / 1000
-    const raw_bass = freq_avg(0, 8)
+    const raw_bass   = freq_avg(0, 8)
+    const raw_mid    = freq_avg(8, 48)
+    const raw_treble = freq_avg(48, 128)
     if (raw_bass > prev_bass * 1.35 && raw_bass > 0.15 && t - last_beat_t > 0.1) {
       beat = 1.0
       last_beat_t = t
     }
     beat     *= 0.88
     prev_bass = prev_bass * 0.8 + raw_bass * 0.2
-    _broadcast({ viz: true, freq: Array.from(freq_data), time: t })
+    _broadcast({ viz: true, freq: Array.from(freq_data), wave: Array.from(wave_data),
+                 bass: raw_bass, mid: raw_mid, treble: raw_treble, beat, time: t })
   }
   viz_raf = requestAnimationFrame(tick)
 }
@@ -332,8 +344,8 @@ const stop_vsvis = () => {
   if (viz_raf) { cancelAnimationFrame(viz_raf); viz_raf = null }
   beat = 0; prev_bass = 0
   VIS_CONTAINER.style.opacity = '0'
-  const sa = document.getElementById('shader-author')
-  if (sa) sa.textContent = ''
+  const sc = document.getElementById('shader-credit')
+  if (sc) { sc.style.display = 'none'; sc.innerHTML = '' }
 }
 
 const on_track_change_vsvis = () => _broadcast({ viz: true, reset: true })
@@ -351,6 +363,7 @@ window.on_track_change_vsvis = on_track_change_vsvis
 window.force_viz_change      = force_viz_change
 window.toggle_vsvis          = toggle_vsvis
 window.get_audio_ctx         = () => { ensure_audio_ctx(); return { ctx: audio_ctx, analyser } }
+window.get_np_analyser       = () => { ensure_audio_ctx(); return np_analyser }
 
 let _sc = null
 const _BATCH = 100
@@ -373,7 +386,7 @@ const set_vis_count = (n) => {
   while (VIZ_FRAMES.length < n) {
     const f = document.createElement('iframe')
     f.className = 'vis-layer'
-    f.src = BLOB_URL
+    f.src = OG_VIZ_TEST ? OG_BLOB_URL : BLOB_URL
     VIS_CONTAINER.appendChild(f)
     VIZ_FRAMES.push(f)
   }
@@ -412,10 +425,21 @@ window.addEventListener('message', e => {
     else if (total > 0) { el.style.display = ''; el.textContent = `⚡ ${compiled}/${total}` }
   }
   if (e.data?.viz_shader && frame === VIZ_FRAMES[0]) {
-    const sa = document.getElementById('shader-author')
-    if (sa) sa.textContent = e.data.viz_shader.author ? `by ${e.data.viz_shader.author}` : ''
+    const sc = document.getElementById('shader-credit')
+    if (!sc) return
+    const { author, id, avatar } = e.data.viz_shader
+    if (author && id) {
+      sc.href = `https://www.vertexshaderart.com/art/${id}`
+      sc.innerHTML = avatar
+        ? `<img src="${avatar}" alt=""><span>${author}</span>`
+        : `<span>${author}</span>`
+      sc.style.display = ''
+    } else {
+      sc.style.display = 'none'
+      sc.innerHTML = ''
+    }
   }
 })
 
 set_vis_count(1)
-_load_shaders()
+if (!OG_VIZ_TEST) _load_shaders()

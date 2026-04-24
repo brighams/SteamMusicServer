@@ -24,7 +24,7 @@
   font-size: 0.75em; color: #c060f0;
   letter-spacing: 2px; text-transform: uppercase;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  cursor: text;
+  cursor: move;
 }
 
 .mixer-header-actions {
@@ -190,8 +190,8 @@
 
 .mixin-canvas {
   position: absolute;
-  top: 0; right: 0; bottom: 0;
-  left: 32px;
+  top: 0; left: 32px;
+  width: calc(100% - 32px); height: 100%;
   pointer-events: none;
   z-index: 0;
   opacity: 0.6;
